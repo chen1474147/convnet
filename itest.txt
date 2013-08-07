@@ -1,0 +1,6 @@
+python convnet.py --data-path=/media/DATA/data/CIFAR/cifar-10-py-colmajor/ --save-path=/media/DATA/data/CIFAR/tmp/ --test-range=6 --train-range=1-5 --layer-def=./example-layers/layers-80sec.cfg --layer-params=./example-layers/layer-params-80sec.cfg --data-provider=cifar --test-freq=13
+
+
+
+
+python convnet.py --data-path=/media/DATA/data/CIFAR/cifar-10-py-colmajor/ --save-path=/media/DATA/data/CIFAR/tmp19/ --test-range=6 --train-range=1-5 --layer-def=./example-layers/layers-18pct.cfg --layer-params=./example-layers/layer-params-18pct.cfg --data-provider=cifar --test-freq=13
