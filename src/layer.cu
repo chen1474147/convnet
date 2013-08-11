@@ -42,7 +42,7 @@ using namespace std;
  */
 
 Layer::Layer(ConvNet* convNet, PyObject* paramsDict, bool trans) : 
-             _convNet(convNet),  _trans(trans) {
+    _convNet(convNet),  _trans(trans), _dropout_mask(trans) {
     _name = pyDictGetString(paramsDict, "name");
     _type = pyDictGetString(paramsDict, "type");
     
@@ -52,8 +52,10 @@ Layer::Layer(ConvNet* convNet, PyObject* paramsDict, bool trans) :
     _actsTarget = pyDictGetInt(paramsDict, "actsTarget");
     _actsGradTarget = pyDictGetInt(paramsDict, "actsGradTarget");
     _conserveMem = pyDictGetInt(paramsDict, "conserveMem");
+    _dropout_prob = pyDictGetFloat(paramsDict, "dropout");
     _outputs = _actsTarget < 0 ? new NVMatrix() : NULL;
     _actsGrad = _actsGradTarget < 0 ? new NVMatrix() : NULL;
+    
 }
 
 void Layer::fpropNext(PASS_TYPE passType) {
@@ -110,6 +112,17 @@ void Layer::fprop(NVMatrixV& v, PASS_TYPE passType) {
             fpropActs(i, _actsTarget >= 0 || i > 0, passType);
         }
     }
+    if (passType != PASS_TEST && _dropout_prob < 1.0 ) {
+      _dropout_mask.resize(getActs().getNumRows(), getActs().getNumCols());
+      _dropout_mask.randomizeUniform();
+      _dropout_mask.smallerThanScalar(_dropout_prob);
+      getActs().eltwiseMult(_dropout_mask); 
+    }
+
+    if (passType == PASS_TEST && _dropout_prob < 1.0) {
+      getActs().scale(_dropout_prob);
+    }
+    
     fpropNext(passType);
 }
 
@@ -127,7 +140,10 @@ void Layer::bprop(NVMatrix& v, PASS_TYPE passType) {
         _prev[i]->getActsGrad().transpose(_trans);
     }
     getActs().transpose(_trans);
-    
+    if ( passType != PASS_TEST && _dropout_prob  < 1.0) {
+      // passType will never be PASS_TEST Here
+      v.eltwiseMult( _dropout_mask );
+    }
     bpropCommon(v, passType);
     
     if (isGradProducer()) {

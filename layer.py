@@ -134,8 +134,14 @@ class MyConfigParser(cfg.SafeConfigParser):
 class FakeConfigParser(object):
     def __init__(self, dic):
         self.dic = dic
-
+    def safe_get_float(self, section, option, default=None):
+        return self.safe_get(section, option, default=default)
     def safe_get(self, section, option, default=None):
+        if option not in self.dic:
+            if default is not None:
+                return default
+            else:
+                raise LayerParsingError('FakeConfigParse doesn''t contain %s ', option)
         return self.dic[option]
         
 
@@ -197,7 +203,11 @@ class LayerParser:
         self.prev_layers = prev_layers
         self.dic['name'] = name
         self.dic['type'] = mcp.safe_get(name, 'type')
-
+        self.dic['dropout'] = mcp.safe_get_float(name, 'dropout', default = 1.0)
+        if self.dic['dropout'] < 1.0:
+            if self.dic['type'] == 'data':
+                raise LayerParsingError('data layer can not use dropout')
+            print 'Use Dropout  , prob =%f' % self.dic['dropout']
         return self.dic  
 
     def verify_float_range(self, v, param_name, _min, _max):
@@ -346,6 +356,7 @@ class LayerWithInputParser(LayerParser):
 #        input_layers = [prev_layers[i] for i in dic['inputs']]
 #        dic['gradConsumer'] = any(l['gradConsumer'] for l in dic['inputLayers'])
 #        dic['usesActs'] = dic['gradConsumer'] # A conservative setting by default for layers with input
+        
         return dic
     
     def verify_img_size(self):

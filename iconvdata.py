@@ -27,8 +27,8 @@ import numpy.random as nr
 import numpy as n
 import random as r
 
-CONV_IMG_SIZE = 128 # 128 for the whole image. Attention
-
+#CONV_IMG_SIZE = 128 # 128 for the whole image. Attention
+CONV_IMG_SIZE=56
 class POSEDataProvider(LabeledMemoryDataProvider):
     def __init__(self, data_dir, batch_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):
         LabeledMemoryDataProvider.__init__(self, data_dir, batch_range, init_epoch, init_batchnum, dp_params, test)

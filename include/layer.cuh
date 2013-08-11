@@ -60,6 +60,8 @@ protected:
     int _numGradProducersNext;
     int _actsTarget, _actsGradTarget;
     std::string _name, _type;
+    NVMatrix _dropout_mask;
+    float _dropout_prob;
     void fpropNext(PASS_TYPE passType);
     virtual void truncBwdActs(); 
     virtual void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType) = 0;
