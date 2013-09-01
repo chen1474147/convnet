@@ -190,6 +190,7 @@ class ShowConvNet(ConvNet):
         label_names = self.test_data_provider.batch_meta['label_names']
         if self.only_errors:
             preds = n.zeros((data[0].shape[1], num_classes), dtype=n.single)
+            #data[1] = data[7] #modify_here
         else:
             preds = n.zeros((NUM_IMGS, num_classes), dtype=n.single)
             rand_idx = nr.randint(0, data[0].shape[1], NUM_IMGS)
