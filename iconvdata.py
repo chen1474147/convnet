@@ -70,6 +70,7 @@ class LargeMultiPOSEDataProvider(LabeledDataProvider):
     def get_next_batch(self):
         epoch, batchnum = self.curr_epoch, self.curr_batchnum
         d = self.get_batch(self.curr_batchnum)
+        self.advance_batch()
         d['data'] = n.require((d['data'] - self.data_mean), dtype=n.single, requirements='C')
         d['labels'] = n.c_[n.require(d['labels'], dtype=n.single)].reshape((-1, d['data'].shape[1]), order='F')
         alldata = [ d['data'] ] + [n.require(l.reshape((1,d['data'].shape[1]), order='F'), dtype=n.single, requirements='C') for l in d['labels']]    
