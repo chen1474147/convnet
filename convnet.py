@@ -192,10 +192,12 @@ class ConvNet(IGPUModel):
         DataProvider.register_data_provider('pose', 'POSE', POSEDataProvider)
         DataProvider.register_data_provider('multipose', 'MULTIPOSE', MultiPOSEDataProvider)
         DataProvider.register_data_provider('largemultipose', 'LARGEMULTIPOSE', LargeMultiPOSEDataProvider)
+        DataProvider.register_data_provider('largejoints8', 'LARGEJOINTS8', LargeJoints8DataProvider)
         DataProvider.register_data_provider('cifar', 'CIFAR', CIFARDataProvider)
         DataProvider.register_data_provider('dummy-cn-n', 'Dummy ConvNet', DummyConvNetDataProvider)
         DataProvider.register_data_provider('cifar-cropped', 'Cropped CIFAR', CroppedCIFARDataProvider)
-        
+        DataProvider.register_data_provider('largejoints8andlabels', 'LARGEJOINTS8ANDLABELS', LargeJoints8AndLabelDataProvider)
+        DataProvider.register_data_provider('largejoints8andlabelsall', 'LARGEJOINTS8ANDLABELSALL', LargeJoints8AndLabelAllDataProvider)
         return op
     
 if __name__ == "__main__":

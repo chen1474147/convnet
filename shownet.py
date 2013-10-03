@@ -107,7 +107,7 @@ class ShowConvNet(ConvNet):
         
     def make_filter_fig(self, filters, filter_start, fignum, _title, num_filters, combine_chans):
         FILTERS_PER_ROW = 16
-        MAX_ROWS = 16
+        MAX_ROWS = 32
         MAX_FILTERS = FILTERS_PER_ROW * MAX_ROWS
         num_colors = filters.shape[0]
         f_per_row = int(ceil(FILTERS_PER_ROW / float(1 if combine_chans else num_colors)))
