@@ -1,4 +1,4 @@
-import numpy
+import numpy as np
 import sys
 import getopt as opt
 from util import *
@@ -10,7 +10,8 @@ import numpy.random as nr
 from convnet import ConvNet
 from options import *
 import pylab as pl
-
+import matplotlib.pyplot as plt
+import iutils as iu
 class TestConvNetError(Exception):
     pass
 class TestConvNet(ConvNet):
@@ -20,6 +21,7 @@ class TestConvNet(ConvNet):
         self.need_gpu = self.op.get_value('analyze_output') is not None
         self.need_gpu |= self.op.get_value('show_estimation') is not None
         self.need_gpu |= self.op.get_value('save_feature_name') is not None
+        self.need_gpu |= self.op.get_value('analyze_feature_name') is not None
         if self.need_gpu:
             ConvNet.get_gpus( self )
     def init_data_providers(self):
@@ -42,6 +44,10 @@ class TestConvNet(ConvNet):
             if self.op.get_value('save_feature_path') is None:
                 raise TestConvNetError(' Please Specify the path to save features')
             self.feature_idx = self.get_layer_idx(self.op.get_value('save_feature_name'))
+        if self.op.get_value('analyze_feature_name'):
+            if self.op.get_value('save_feature_path') is None:
+                raise TestConvNetError(' Please Specify the path to save features')
+            self.feature_idx = self.get_layer_idx(self.op.get_value('analyze_feature_name'))
         ### write feature here 
     def init_model_lib(self):
         if self.need_gpu:
@@ -114,7 +120,7 @@ class TestConvNet(ConvNet):
         import scipy.io as sio
         testdp = self.test_data_provider
         num_batches = len(testdp.batch_range)
-        print 'There are ' + str(testdp.get_num_batches(self.data_path)) + 'in directory'
+        print 'There are ' + str(testdp.get_num_batches(self.data_path)) + ' in directory'
         print 'There are ' + str( num_batches ) + ' in range'
         iu.ensure_dir(self.save_feature_path)
         feature_name = self.op.get_value('save_feature_name')
@@ -138,7 +144,115 @@ class TestConvNet(ConvNet):
             print 'The shape of Y is' + str(d['Y'].shape)
             sio.savemat(save_path, d)
             pickle(save_path, d)
-
+    def analyze_feature(self):
+        # analyze feature
+        
+        import iutils as iu
+        import scipy.io as sio
+        testdp = self.test_data_provider
+        num_batches = len(testdp.batch_range)
+        print 'There are ' + str(testdp.get_num_batches(self.data_path)) + ' in directory'
+        print 'There are ' + str( num_batches ) + ' in range'
+        iu.ensure_dir(self.save_feature_path)
+        feature_name = self.op.get_value('analyze_feature_name')
+        feature_dim = self.model_state['layers'][self.feature_idx]['outputs']
+        feature_channel = self.op.get_value('feature_channel')
+        abs_sum_feature = n.zeros([feature_dim, 1], dtype=n.float32)
+        print 'Feature dimension = ' + str(feature_dim)
+        tot_data = 0
+        np.random.seed(17)
+        for b in range(num_batches):
+            epoch, b_num, data = self.get_next_batch(train=False)
+            print '   Start writing batch......\t' + str(b_num)
+            num_data = data[0].shape[-1]
+            data += [n.zeros((num_data, feature_dim), dtype=n.single)]
+            self.libmodel.startFeatureWriter(data, self.feature_idx)
+            self.finish_batch()
+            abs_sum_feature += np.abs(data[-1]).sum(axis=0).reshape((-1,1))
+            tot_data += num_data
+            if self.show_response is not None: 
+                num_to_display = min(16, num_data)  
+                perm = np.random.randint(0, num_data, num_to_display)
+                plot_data  = self.test_data_provider.get_plottable_data(data[0])[..., perm]/255.0     
+                # plot_data = (data[0] + testdp.data_mean).reshape((112,112,3,num_data), order='F')/255.0
+                s = np.sqrt(feature_dim / feature_channel)
+                plot_response = data[-1].transpose().reshape((s,s,feature_channel,num_data),order = 'F')[...,perm]
+                self.display_image_response(plot_data, plot_response)
+        abs_sum_feature /= (tot_data+ 0.0)
+        d = dict()
+        save_name = 'batch_analysis_' + feature_name 
+        save_path = iu.fullfile(self.save_feature_path, save_name)
+        d['abs_sum'] = abs_sum_feature
+        pickle(save_path, d)
+        # print abs_sum_feature[:10]
+        # print data[0][...,0].shape, testdp.data_mean.shape, data[0].shape[0]
+        # print testdp.data_mean.shape, data[0][...,0].reshape((data[0].shape[0],1)).shape
+        # t = testdp.data_mean + data[0].sum(axis=1).reshape((data[0].shape[0],1),order='F')/data[0].shape[-1]
+        # self.display_feature(t,3)
+        self.display_feature(np.abs(abs_sum_feature), feature_channel, isrgb=False)
+    def prepare_feature_imgae(self, fimg):
+        channel = fimg.shape[-1]
+        if channel == 3:
+            return fimg
+        else:
+            return iu.imgproc.imgeq(np.abs(fimg).sum(axis=-1))
+    def display_image_response(self, images, responses):
+        # image will be in ... x num_data format
+        # responses will be ... x num_data format
+        MAX_IMG_ROW = 4
+        MAX_ROW = 4
+        ndata = min(images.shape[-1], MAX_IMG_ROW * MAX_ROW)
+        nrow = (ndata-1)/MAX_IMG_ROW + 1
+        pl.subplots(2,2)
+        import matplotlib.cm as cm
+        for i in range(ndata):
+            pl.subplot(nrow, MAX_IMG_ROW*2, i*2 + 1) 
+            #pl.subplot(2, 2, 0)
+            cur_image = images[..., i]
+            cur_resp = responses[..., i]
+            pl.imshow(cur_image)
+            pl.subplot(nrow, MAX_IMG_ROW * 2, (i * 2) + 2)
+            cur_resp =self.prepare_feature_imgae(cur_resp)/255.0 
+            
+            pl.imshow(cur_resp)
+            #pl.imshow(cur_resp, cmap=cm.RdBu_r)
+        plt.show()
+        
+    def display_feature(self, imgdata, channel, isrgb = True):
+        
+        if (imgdata.size % channel) != 0:
+            raise TestConvNetError('size of image %d can not divide number of channel %d' % (imgdata.size , channel))
+        
+        s = np.sqrt(imgdata.size / channel)
+        if channel == 3:
+            imgdata = imgdata.reshape(s,s,channel, order='F')/255.0
+        else:
+            
+            #imgdata = (imgdata.reshape(s,s,channel, order='F')).reshape((s,s))
+            imgdata = imgdata.reshape(s,s,channel, order='F')
+        import matplotlib.cm as cm
+        import iutils as iu
+        #imgdata = iu.imgproc.imgeq(imgdata)/255.0
+        # plt.hist(imgdata.flatten(), 1000)
+        # plt.show()
+        # return
+        if isrgb is True:
+            pl.imshow(imgdata)
+        else:
+            MAX_IMG_ROW = 8
+            MAX_ROW = 8
+            nrow = (channel - 1) / MAX_IMG_ROW + 1
+            print '========'
+            for i in range( channel):
+                pl.subplot(nrow, MAX_IMG_ROW, i + 1)
+                curimg = iu.imgproc.imgeq(imgdata[...,i].reshape((s,s)))
+                #curimg = imgdata[...,i].reshape((s,s))
+                # pl.imshow(curimg, cmap = cm.Greys_r)
+                pl.imshow(curimg)
+                
+               
+        plt.show()
+        
     def show_joints8_estimation(self):
         import iconvnet_datacvt as icvt
         data = self.get_next_batch(train=False)[2]
@@ -229,7 +343,9 @@ class TestConvNet(ConvNet):
             self.show_joints8_estimation()
         if self.save_feature_name:
             self.save_feature()
-        pl.show()
+        if self.analyze_feature_name:
+            self.analyze_feature()
+        plt.show()
         sys.exit(0)
 
     @classmethod
@@ -245,6 +361,9 @@ class TestConvNet(ConvNet):
         op.add_option("save-images", "save_images", StringOptionParser, "Save the estimated images")
         op.add_option("save-feature-name", 'save_feature_name', StringOptionParser, "Save features in layers specified in save_features")
         op.add_option('save-feature-path', 'save_feature_path', StringOptionParser, "save layer feature in 'save_feature_path' ")
+        op.add_option('analyze-feature-name', 'analyze_feature_name', StringOptionParser, "The layer name of the feature to be analyzed")
+        op.add_option('show-response', 'show_response', StringOptionParser, "Displaying the response of input images, used with analyze-feature")
+        op.add_option('feature-channel', 'feature_channel', IntegerOptionParser, "The channel of features")
         op.options['load_file'].default = None
         
         return op

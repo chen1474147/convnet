@@ -252,3 +252,43 @@ class LargeJoints8AndLabelAllDataProvider(DataProvider):
     def get_num_classes(self):
         return 10
 
+class LargeJoints8AndIndicatorAllDataProvider(DataProvider):
+        def __init__(self, data_dir, batch_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):
+                DataProvider.__init__(self, data_dir, batch_range, init_epoch, init_batchnum, dp_params, test)
+                self.data_mean = self.batch_meta['data_mean']
+                self.num_colors = 3
+                self.img_size = CONV_IMG_SIZE
+                self.ind_dim = 7 * 8 * 8
+        def get_next_batch(self):
+                load_time = time()
+                self.data_dic = self.get_batch(self.curr_batchnum)
+                self.data_dic['data'] = n.require((self.data_dic['data'] - self.data_mean), dtype=n.single, requirements='C')
+                self.data_dic['joints8'] = n.require(self.data_dic['joints8'].reshape((16, self.data_dic['data'].shape[1]), order='C'), dtype=n.single, requirements='C')
+                self.data_dic['joints8'] = self.data_dic['joints8']/self.img_size;
+                epoch, batchnum = self.curr_epoch, self.curr_batchnum
+                self.advance_batch()
+                alldata = [self.data_dic['data'], self.data_dic['joints8']]
+                ind = self.data_dic['indmap']
+                # Note that all image like data will use 'F' order
+                # although it will require 'C' continuous data
+                # 0th body parts will start as idx 2
+                ndata = ind.shape[-1]
+                self.data_dic['indmap'] = n.require(ind.reshape((-1, ndata), order='F'), dtype=n.single, requirements='C')
+                alldata += [self.data_dic['indmap']  ]
+                self.ind_dim = ind.shape[0] * ind.shape[1] * ind.shape[2]
+                return epoch, batchnum, alldata
+        def get_data_dims(self, idx=0):
+                if idx == 0:
+                        return self.img_size**2 * self.num_colors
+                elif idx == 1:
+                        return 16
+                else:
+                        # should be called after get_next_batch
+                        return self.ind_dim
+        def get_plottable_data(self, data):
+                return n.require(data + self.data_mean).reshape((self.img_size, self.img_size, self.num_colors, data.shape[1]), order='F')
+        def get_joints(self):
+                return self.data_dic['joints8'].reshape((8,2,-1), order='C')
+        def get_num_parts(self):
+                return 7
+    
