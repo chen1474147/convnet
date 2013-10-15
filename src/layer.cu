@@ -963,6 +963,8 @@ CostLayer& CostLayer::makeCostLayer(ConvNet* convNet, string& type, PyObject* pa
         return *new LogregCostLayer(convNet, paramsDict);
     } else if (type == "cost.sum2") {
         return *new SumOfSquaresCostLayer(convNet, paramsDict);
+    } else if (type == "cost.eltlogreg") {
+      return *new EltwiseLogregCostLayer(convNet, paramsDict);
     }
     throw string("Unknown cost layer type ") + type;
 }
@@ -1019,3 +1021,40 @@ void SumOfSquaresCostLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE 
 void SumOfSquaresCostLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
     _prev[inpIdx]->getActsGrad().add(*_inputs[0], scaleTargets, -2 * _coeff);
 }
+/* 
+ * =====================
+ * EltwiseLogregCostLayer
+   Note: This is logistic + y_i log x_i layer
+   given input z_i, the output -logprob is -y_i log x_i where x_i = logistic(z_i)
+   Combine these just for numerical consideration
+ * =====================
+ */
+
+EltwiseLogregCostLayer::EltwiseLogregCostLayer(ConvNet* convNet, PyObject* paramsDict) : CostLayer(convNet, paramsDict, false) {
+}
+void EltwiseLogregCostLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  // Do fprop once
+  if (inpIdx == 0) {
+    NVMatrix& indmap = *_inputs[0];
+    NVMatrix& predmap = *_inputs[1];
+    int numCases = indmap.getNumCols();
+    int numTasks = indmap.getNumRows();
+    NVMatrix& indlogpred = getActs(), correctprobs;
+    computeEltwiseLogregCost(indmap, predmap, indlogpred, correctprobs);
+    _costv.clear();
+    _costv.push_back(-indlogpred.sum());
+    _costv.push_back(numCases - correctprobs.sum() / numTasks);
+  }    
+}
+
+void EltwiseLogregCostLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  assert(inpIdx == 1);
+  NVMatrix& indmap = _prev[0]->getActs();
+  NVMatrix& predmap = _prev[1]->getActs();
+  NVMatrix& target = _prev[1]->getActsGrad();
+  bool doWork = _prev[1]->getNext().size() > 0;
+  assert( doWork );// Always do work
+  computeEltwiseLogregGrad(indmap, predmap, target, scaleTargets == 1, _coeff);
+}
+
+

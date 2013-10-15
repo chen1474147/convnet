@@ -23,7 +23,9 @@
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
+/*
+  Modified by Li Sijin, 2013  lisijin7@gmail.com
+ */
 #include <assert.h>
 
 #include <layer_kernels.cuh>
@@ -71,6 +73,73 @@ __global__ void kLogregCost(float* probs, float* labels, float* maxProbs, float*
             correctProbs[tx] = 1.0f / float(numMax);
         }
     }
+}
+
+
+/*
+  Please don't use any special neuron (such as logistic, tanh) before this layer
+  
+  z_i is the input from the previous layer, y_i is the ground truth vectorized 1-of-K map
+  x_i = logistic(z_i)
+  what indlogpred calculate is y_i log( x_i) + (1-y_i) log(1-x_i)
+  predmap:    (numTasks, numCases)
+  indlogpred: (numTasks, numCases)
+  correctprobs:(numTasks, numCases)
+
+  each thread is responsible for per_thread_case position in one task
+  blockIdx.x determines which task(indicator) to take
+ */
+
+__global__ void kEltwiseLogregCost(float* predmap, float* indmap, float*indlogpred, float* correctprobs, int numCases, int numTasks, int per_thread_case) {
+  const int task_id = blockIdx.x;
+  const int start_tx = threadIdx.x * per_thread_case;
+  const int end_tx = min(start_tx + per_thread_case, numCases);
+  if (task_id >= numTasks) {
+    return;
+  }
+  for (int c_id = start_tx; c_id < end_tx; ++c_id) {
+    int pos = task_id * numCases + c_id;
+    float t = __fdividef(1.0f, 1.0f + __expf(-predmap[ pos ]));   
+    if (indmap[pos] == 1) {
+      indlogpred[pos] = __logf(t);
+      correctprobs[pos] = t;
+    } else {
+      t = 1-t;
+      indlogpred[pos] = __logf(t);
+      correctprobs[pos] = t;
+    }
+  }
+}
+
+/*
+  z_i is the input of previous layer
+  x_i = logistic(z_i)
+  Calculate the gradient of f(z_i) = y_i log x_i + (1-y_i) log(1-x_i)
+  df_dz = [yi/xi + (yi-1)/(1-xi)]*(1-xi)(xi) = [yi * (1-xi) + (yi-1)*xi] = [yi - xi]
+  predmap:       (numTasks, numCases)
+  indmap:        (numCases, numCases)
+  df_dz:    (numCases, numCases)
+
+  each thread is responsible for per_thread_case cases in one task
+  each block is responsible for one task  
+ */
+template <bool add>
+__global__ void kEltwiseLogregGrad(float * predmap, float* indmap, float* df_dz, int numCases, int numTasks, int per_thread_case, float coeff ) {
+  const int task_id = blockIdx.x;
+  const int start_tx = threadIdx.x * per_thread_case;
+  const int end_tx = min(start_tx + per_thread_case, numCases);
+  if (task_id >= numTasks) {
+    return;
+  }
+  for (int c_id = start_tx; c_id < end_tx; ++c_id) {
+    int pos = task_id * numCases + c_id;
+    float v = coeff * (indmap[pos] - __fdividef(1.0f, 1.0f + __expf(-predmap[ pos ])));   
+    if (add) {
+      df_dz[pos] += v;
+    } else {
+      df_dz[pos] = v;
+    }
+  }
 }
 
 /*
@@ -287,4 +356,47 @@ void computeLogregSoftmaxGrad(NVMatrix& labels, NVMatrix& probs, NVMatrix& targe
     }
 
     getLastCudaError("computeLogregSoftmaxGrad: Kernel execution failed");
+}
+
+
+void computeEltwiseLogregCost(NVMatrix& indmap, NVMatrix& predmap, NVMatrix & indlogpred, NVMatrix& correctprobs) {
+  int numCases = predmap.getNumCols();
+  int numTasks = predmap.getNumRows();
+  assert(indmap.getNumCols() == numCases);
+  assert(indmap.getNumRows() == numTasks);
+  assert(!indmap.isTrans());
+  assert(!predmap.isTrans());
+  assert(indmap.isContiguous());
+  assert(predmap.isContiguous());
+
+  indlogpred.resize(numTasks, numCases);
+  correctprobs.resize(numTasks, numCases);
+  dim3 threads(ELTLOGREG_ERR_THREADS_X, 1);
+  dim3 blocks(numTasks, 1); // Ensure the numTasks will not exceed GPU's capacity
+  int per_thread_case = DIVUP( numCases, ELTLOGREG_ERR_THREADS_X); 
+  cudaFuncSetCacheConfig(kEltwiseLogregCost, cudaFuncCachePreferL1);
+  kEltwiseLogregCost<<<blocks, threads>>>(predmap.getDevData(), indmap.getDevData(), indlogpred.getDevData(), correctprobs.getDevData(), numCases, numTasks, per_thread_case);
+  getLastCudaError("computeEltwiseLogregCost: Kernel execution failed");
+}
+
+void computeEltwiseLogregGrad(NVMatrix& indmap, NVMatrix& predmap, NVMatrix& target, bool add, float coeff) {
+  int numCases = predmap.getLeadingDim();
+  int numTasks = predmap.getFollowingDim();
+  assert( indmap.getLeadingDim() == numCases);
+  assert( indmap.getFollowingDim() == numTasks);
+  assert(!indmap.isTrans());
+  assert(!predmap.isTrans());
+  assert(indmap.isContiguous());
+  assert(predmap.isContiguous());
+
+  dim3 threads(ELTLOGREG_ERR_THREADS_X, 1);
+  dim3 blocks(numTasks, 1); // Ensure the numTasks will not exceed GPU's capacity
+  int per_thread_case = DIVUP( numCases, ELTLOGREG_ERR_THREADS_X);
+  if (!add) {
+    target.resize(predmap);
+    kEltwiseLogregGrad<false><<<blocks, threads>>>(predmap.getDevData(), indmap.getDevData(), target.getDevData(), numCases, numTasks, per_thread_case, coeff);
+  } else {
+    kEltwiseLogregGrad<true><<<blocks, threads>>>(predmap.getDevData(), indmap.getDevData(), target.getDevData(), numCases, numTasks, per_thread_case, coeff);
+  }
+  getLastCudaError("computeEltwiseLogregGrad: Kernel execution failed");
 }

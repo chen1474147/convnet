@@ -22,6 +22,9 @@
 # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
 # EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+# October 13, 2013,  Edit by Li Sijin (lisijin7@gmail.com)
+#        + add  EltLogregCostParser
+
 from math import exp
 import sys
 import ConfigParser as cfg
@@ -1116,7 +1119,20 @@ class SumOfSquaresCostParser(CostParser):
         dic = CostParser.parse(self, name, mcp, prev_layers, model)
         print "Initialized sum-of-squares cost '%s'" % name
         return dic
-
+class EltLogregCostParser(CostParser):
+    def __init__(self):
+        CostParser.__init__(self, num_inputs=2)
+    def parse(self, name, mcp, prev_layers, model):
+        dic = CostParser.parse(self, name, mcp, prev_layers, model)
+        if dic['numInputs'][0] != dic['numInputs'][1]:
+            print str(dic['numInputs'][0]) + '!='+ str( dic['numInputs'][1])
+            raise LayerParsingError("Layer '%s': dimensionality of two input must be the same" % name)
+        if prev_layers[dic['inputs'][0]]['type'] != 'data':
+            raise LayerParsingError("Layer '%s': first input must be data layer" % name)  
+        print "Initialized Eltwise logistic regression cost '%s'" % name
+        return dic 
+        
+        
 # All the layer parsers
 layer_parsers = {'data': lambda : DataLayerParser(),
                  'fc': lambda : FCLayerParser(),
@@ -1137,7 +1153,8 @@ layer_parsers = {'data': lambda : DataLayerParser(),
                  'rgb2lab': lambda : RGBToLABLayerParser(),
                  'rscale': lambda : RandomScaleLayerParser(),
                  'cost.logreg': lambda : LogregCostParser(),
-                 'cost.sum2': lambda : SumOfSquaresCostParser()}
+                 'cost.sum2': lambda : SumOfSquaresCostParser(),
+                 'cost.eltlogreg':lambda:EltLogregCostParser()}
  
 # All the neuron parsers
 # This isn't a name --> parser mapping as the layer parsers above because neurons don't have fixed names.

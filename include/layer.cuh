@@ -380,5 +380,12 @@ public:
     SumOfSquaresCostLayer(ConvNet* convNet, PyObject* paramsDict);
 };
 
+class EltwiseLogregCostLayer : public CostLayer {
+ protected:
+  void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
+  void bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType);
+ public:
+  EltwiseLogregCostLayer(ConvNet* convNet, PyObject* paramsDict);
+};
 #endif	/* LAYER_CUH */
 
