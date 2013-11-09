@@ -199,6 +199,7 @@ class ConvNet(IGPUModel):
         DataProvider.register_data_provider('largejoints8andlabels', 'LARGEJOINTS8ANDLABELS', LargeJoints8AndLabelDataProvider)
         DataProvider.register_data_provider('largejoints8andlabelsall', 'LARGEJOINTS8ANDLABELSALL', LargeJoints8AndLabelAllDataProvider)
         DataProvider.register_data_provider('largejoints8andindicatorall', 'LARGEJOINTS8ANDINDICATORALL', LargeJoints8AndIndicatorAllDataProvider)
+        DataProvider.register_data_provider('largejoints8andindicatorfeatureall', 'LARGEJOINTS8ANDINDICATORFEATUREALL', LargeJoints8AndIndicatorFeatureAllDataProvider) 
         return op
     
 if __name__ == "__main__":

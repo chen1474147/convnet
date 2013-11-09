@@ -258,7 +258,10 @@ class LargeJoints8AndIndicatorAllDataProvider(DataProvider):
                 self.data_mean = self.batch_meta['data_mean']
                 self.num_colors = 3
                 self.img_size = CONV_IMG_SIZE
-                self.ind_dim = 7 * 8 * 8
+                if 'indmap_para' not in self.batch_meta:
+                    self.ind_dim = 7 * 8 * 8
+                else:
+                    self.ind_dim = self.batch_meta['indmap_para']['dim']
         def get_next_batch(self):
                 load_time = time()
                 self.data_dic = self.get_batch(self.curr_batchnum)
@@ -287,6 +290,49 @@ class LargeJoints8AndIndicatorAllDataProvider(DataProvider):
                         return self.ind_dim
         def get_plottable_data(self, data):
                 return n.require(data + self.data_mean).reshape((self.img_size, self.img_size, self.num_colors, data.shape[1]), order='F')
+        def get_joints(self):
+                return self.data_dic['joints8'].reshape((8,2,-1), order='C')
+        def get_num_parts(self):
+                return 7
+class LargeJoints8AndIndicatorFeatureAllDataProvider(DataProvider):
+        def __init__(self, data_dir, batch_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):
+                DataProvider.__init__(self, data_dir, batch_range, init_epoch, init_batchnum, dp_params, test)
+                self.data_mean = self.batch_meta['data_mean']
+                self.num_colors = 3
+                self.img_size = CONV_IMG_SIZE
+                if 'indmap_para' not in self.batch_meta:
+                    self.ind_dim = 7 * 8 * 8
+                else:
+                    self.ind_dim = self.batch_meta['indmap_para']['dim']
+        def get_next_batch(self):
+                load_time = time()
+                self.data_dic = self.get_batch(self.curr_batchnum)
+                self.data_dic['feature'] = n.require(self.data_dic['feature'], dtype=n.single, requirements='C')
+                self.data_dic['joints8'] = n.require(self.data_dic['joints8'].reshape((16, self.data_dic['data'].shape[1]), order='C'), dtype=n.single, requirements='C')
+                self.data_dic['joints8'] = self.data_dic['joints8']/self.img_size
+                epoch, batchnum = self.curr_epoch, self.curr_batchnum
+                self.advance_batch()
+                alldata = [self.data_dic['feature'], self.data_dic['joints8']]
+                ind = self.data_dic['indmap']
+                # Note that all image like data will use 'F' order
+                # although it will require 'C' continuous data
+                # 0th body parts will start as idx 2
+                ndata = ind.shape[-1]
+                self.data_dic['indmap'] = n.require(ind.reshape((-1, ndata), order='F'), dtype=n.single, requirements='C')
+                alldata += [self.data_dic['indmap']  ]
+                self.ind_dim = 448 # next time I will write it into meta
+                return epoch, batchnum, alldata
+        def get_data_dims(self, idx=0):
+                if idx == 0: # temp value, I will add it later in meta file
+                        return 1600
+                elif idx == 1:
+                        return 16
+                else:
+                        # should be called after get_next_batch
+                        return self.ind_dim
+        def get_plottable_data(self, data):
+            return None
+            #return n.require(data).reshape((self.img_size, self.img_size, self.num_colors, data.shape[1]), order='F')
         def get_joints(self):
                 return self.data_dic['joints8'].reshape((8,2,-1), order='C')
         def get_num_parts(self):
