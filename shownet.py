@@ -107,7 +107,7 @@ class ShowConvNet(ConvNet):
         
     def make_filter_fig(self, filters, filter_start, fignum, _title, num_filters, combine_chans):
         FILTERS_PER_ROW = 16
-        MAX_ROWS = 16
+        MAX_ROWS = 32
         MAX_FILTERS = FILTERS_PER_ROW * MAX_ROWS
         num_colors = filters.shape[0]
         f_per_row = int(ceil(FILTERS_PER_ROW / float(1 if combine_chans else num_colors)))
@@ -190,6 +190,7 @@ class ShowConvNet(ConvNet):
         label_names = self.test_data_provider.batch_meta['label_names']
         if self.only_errors:
             preds = n.zeros((data[0].shape[1], num_classes), dtype=n.single)
+            #data[1] = data[7] #modify_here
         else:
             preds = n.zeros((NUM_IMGS, num_classes), dtype=n.single)
             rand_idx = nr.randint(0, data[0].shape[1], NUM_IMGS)

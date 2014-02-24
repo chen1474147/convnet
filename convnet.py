@@ -34,6 +34,7 @@ import layer as lay
 from iconvdata import *
 from convdata import *
 from os import linesep as NL
+
 #import pylab as pl
 
 class ConvNet(IGPUModel):
@@ -174,7 +175,7 @@ class ConvNet(IGPUModel):
     def get_options_parser(cls):
         op = IGPUModel.get_options_parser()
         op.add_option("mini", "minibatch_size", IntegerOptionParser, "Minibatch size", default=128)
-        op.add_option("layer-def", "layer_def", StringOptionParser, "Layer definition file", set_once=True)
+        op.add_option("layer-def", "layer_def", StringOptionParser, "Layer definition file", set_once=False) # it should be True, I just need to run it on multi-mac
         op.add_option("layer-params", "layer_params", StringOptionParser, "Layer parameter file")
         op.add_option("check-grads", "check_grads", BooleanOptionParser, "Check gradients and quit?", default=0, excuses=['data_path','save_path','train_batch_range','test_batch_range'])
         op.add_option("multiview-test", "multiview_test", BooleanOptionParser, "Cropped DP: test on multiple patches?", default=0, requires=['logreg_name'])
@@ -191,10 +192,27 @@ class ConvNet(IGPUModel):
         op.options['dp_type'].default = None
         DataProvider.register_data_provider('pose', 'POSE', POSEDataProvider)
         DataProvider.register_data_provider('multipose', 'MULTIPOSE', MultiPOSEDataProvider)
+        DataProvider.register_data_provider('largemultipose', 'LARGEMULTIPOSE', LargeMultiPOSEDataProvider)
+        DataProvider.register_data_provider('largejoints8', 'LARGEJOINTS8', LargeJoints8DataProvider)
         DataProvider.register_data_provider('cifar', 'CIFAR', CIFARDataProvider)
         DataProvider.register_data_provider('dummy-cn-n', 'Dummy ConvNet', DummyConvNetDataProvider)
         DataProvider.register_data_provider('cifar-cropped', 'Cropped CIFAR', CroppedCIFARDataProvider)
-        
+        DataProvider.register_data_provider('largejoints8andlabels', 'LARGEJOINTS8ANDLABELS', LargeJoints8AndLabelDataProvider)
+        DataProvider.register_data_provider('largejoints8andlabelsall', 'LARGEJOINTS8ANDLABELSALL', LargeJoints8AndLabelAllDataProvider)
+        DataProvider.register_data_provider('largejoints8andindicatorall', 'LARGEJOINTS8ANDINDICATORALL', LargeJoints8AndIndicatorAllDataProvider)
+        DataProvider.register_data_provider('largejoints8andindicatorfeatureall', 'LARGEJOINTS8ANDINDICATORFEATUREALL', LargeJoints8AndIndicatorFeatureAllDataProvider)
+        DataProvider.register_data_provider('largejoints8andindicatormaskall', 'LARGEJOINTS8ANDINDICATORMASKALLDATAPROVIDER', LargeJoints8AndIndicatorMaskAllDataProvider)
+        DataProvider.register_data_provider('largejtindlack_rua', 'LARGEJTINDLACK_RUA_DATAPROVIDER', LargeJtIndLack_RUA_DataProvider)
+        DataProvider.register_data_provider('largejtindlack_rla', 'LARGEJTINDLACK_RLA_DATAPROVIDER', LargeJtIndLack_RLA_DataProvider)
+        DataProvider.register_data_provider('largejtindlack_lua', 'LARGEJTINDLACK_LUA_DATAPROVIDER', LargeJtIndLack_LUA_DataProvider)
+        DataProvider.register_data_provider('largejtindlack_lla', 'LARGEJTINDLACK_LLA_DATAPROVIDER', LargeJtIndLack_LLA_DataProvider)
+        DataProvider.register_data_provider('largejtindlack_ua', 'LARGEJTINDLACK_UA_DATAPROVIDER', LargeJtIndLack_UA_DataProvider)
+        DataProvider.register_data_provider('largejtindlack_la', 'LARGEJTINDLACK_LA_DATAPROVIDER', LargeJtIndLack_LA_DataProvider)
+        DataProvider.register_data_provider('largejtindlack_head', 'LARGEJTINDLACK_HEAD_DATAPROVIDER', LargeJtIndLack_HEAD_DataProvider)
+        DataProvider.register_data_provider('largejtindlack_shoulder', 'LARGEJTINDLACK_SHOULDER_DATAPROVIDER', LargeJtIndLack_SHOULDER_DataProvider)
+        DataProvider.register_data_provider('largejtind2', 'LARGEJTIND2_DATAPROVIDER', LargeJtInd2_DataProvider)
+        DataProvider.register_data_provider('largejtind2mask', 'LARGEJTIND2MASK_DATAPROVIDER', LargeJtInd2Mask_DataProvider)
+        DataProvider.register_data_provider('h36mmono', 'H36MMONODATAPROVIDER', H36MMonoDataProvider) 
         return op
     
 if __name__ == "__main__":

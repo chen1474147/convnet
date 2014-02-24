@@ -22,6 +22,9 @@
 # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
 # EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+# October 13, 2013,  Edit by Li Sijin (lisijin7@gmail.com)
+#        + add  EltLogregCostParser
+
 from math import exp
 import sys
 import ConfigParser as cfg
@@ -620,7 +623,25 @@ class EltwiseSumLayerParser(LayerWithInputParser):
         
         print "Initialized elementwise sum layer '%s', producing %d outputs" % (name, dic['outputs'])
         return dic
-    
+
+class EltwiseMulLayerParser(LayerWithInputParser):
+    def __init__(self):
+        LayerWithInputParser.__init__(self)
+
+    def parse(self, name, mcp, prev_layers, model):
+        dic = LayerWithInputParser.parse(self, name, mcp, prev_layers, model)
+        if len(dic['numInputs'])!=2:
+            raise LayerParsingError("Layer '%s': should only take 2 inputs. %d inputs are given" % (name, len(dic['numInputs'])))
+        if len(set(dic['numInputs'])) != 1:
+            raise LayerParsingError("Layer '%s': all inputs must have the same dimensionalities. Got dimensionalities: %s" % (name, ". ".join(str(s) for s in dic['numInputs'])))
+        dic['outputs'] = dic['numInputs'][0]
+        dic['usesInputs'] = True
+        dic['usesActs'] = False
+        dic['forceOwnActs'] = True 
+
+        print "Initialized elementwise sum layer '%s', producing %d outputs" % (name, dic['outputs'])
+        return dic
+        
 class EltwiseMaxLayerParser(LayerWithInputParser):
     def __init__(self):
         LayerWithInputParser.__init__(self)
@@ -656,7 +677,6 @@ class WeightLayerParser(LayerWithInputParser):
         dic['momW'] = mcp.safe_get_float_list(name, 'momW')
         dic['momB'] = mcp.safe_get_float(name, 'momB')
         dic['wc'] = mcp.safe_get_float_list(name, 'wc')
-        
         self.verify_num_params(['epsW', 'momW', 'wc'])
         
         dic['gradConsumer'] = dic['epsB'] > 0 or any(w > 0 for w in dic['epsW'])
@@ -1116,7 +1136,40 @@ class SumOfSquaresCostParser(CostParser):
         dic = CostParser.parse(self, name, mcp, prev_layers, model)
         print "Initialized sum-of-squares cost '%s'" % name
         return dic
+class EltLogregCostParser(CostParser):
+    def __init__(self):
+        CostParser.__init__(self, num_inputs=2)
+    def parse(self, name, mcp, prev_layers, model):
+        dic = CostParser.parse(self, name, mcp, prev_layers, model)
+        if dic['numInputs'][0] != dic['numInputs'][1]:
+            print str(dic['numInputs'][0]) + '!='+ str( dic['numInputs'][1])
+            raise LayerParsingError("Layer '%s': dimensionality of two input must be the same" % name)
+        if prev_layers[dic['inputs'][0]]['type'] != 'data':
+            raise LayerParsingError("Layer '%s': first input must be data layer" % name)  
+        print "Initialized Eltwise logistic regression cost '%s'" % name
+        return dic 
+class EltL2SVMCostParser(CostParser):
+    def __init__(self):
+        CostParser.__init__(self, num_inputs=2)
+    def parse(self, name, mcp, prev_layers, model):
+        dic = CostParser.parse(self, name, mcp, prev_layers, model)
+        if dic['numInputs'][0] != dic['numInputs'][1]:
+            print str(dic['numInputs'][0]) + '!='+ str( dic['numInputs'][1])
+            raise LayerParsingError("Layer '%s': dimensionality of two input must be the same" % name)
+        if prev_layers[dic['inputs'][0]]['type'] != 'data':
+            raise LayerParsingError("Layer '%s': first input must be data layer" % name)
+        if 'neuron' in prev_layers[dic['inputs'][1]] and prev_layers[dic['inputs'][1]]['neuron'] != "" :
+            raise LayerParsingError("Layer '%s': Second input can not take neurons \"%s\": it should be linear mapping" % (name, prev_layers[dic['inputs'][1]]['neuron']))
+        print "Initialized Eltwise L2 SVM '%s':" % name
+        return dic
 
+    def add_params(self, mcp):
+        # add a, b
+        CostParser.add_params(self, mcp)
+        dic, name = self.dic, self.dic['name']
+        dic['a'] = mcp.safe_get_float(name, 'a', default=0.5)
+        dic['b'] = mcp.safe_get_float(name, 'b', default=0.5)
+        
 # All the layer parsers
 layer_parsers = {'data': lambda : DataLayerParser(),
                  'fc': lambda : FCLayerParser(),
@@ -1124,6 +1177,7 @@ layer_parsers = {'data': lambda : DataLayerParser(),
                  'local': lambda : LocalUnsharedLayerParser(),
                  'softmax': lambda : SoftmaxLayerParser(),
                  'eltsum': lambda : EltwiseSumLayerParser(),
+                 'eltmul': lambda : EltwiseMulLayerParser(),
                  'eltmax': lambda : EltwiseMaxLayerParser(),
                  'neuron': lambda : NeuronLayerParser(),
                  'pool': lambda : PoolLayerParser(),
@@ -1137,7 +1191,9 @@ layer_parsers = {'data': lambda : DataLayerParser(),
                  'rgb2lab': lambda : RGBToLABLayerParser(),
                  'rscale': lambda : RandomScaleLayerParser(),
                  'cost.logreg': lambda : LogregCostParser(),
-                 'cost.sum2': lambda : SumOfSquaresCostParser()}
+                 'cost.sum2': lambda : SumOfSquaresCostParser(),
+                 'cost.eltlogreg':lambda:EltLogregCostParser(),
+                 'cost.eltl2svm':lambda:EltL2SVMCostParser()}
  
 # All the neuron parsers
 # This isn't a name --> parser mapping as the layer parsers above because neurons don't have fixed names.
