@@ -164,6 +164,14 @@ public:
     EltwiseSumLayer(ConvNet* convNet, PyObject* paramsDict);
 };
 
+class EltwiseMulLayer : public Layer {
+ protected:
+  void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
+  void bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType); public:
+  EltwiseMulLayer(ConvNet* convNet, PyObject* paramsDict);
+};
+
+
 class EltwiseMaxLayer : public Layer {
 protected:
     void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
@@ -387,5 +395,16 @@ class EltwiseLogregCostLayer : public CostLayer {
  public:
   EltwiseLogregCostLayer(ConvNet* convNet, PyObject* paramsDict);
 };
+
+class EltwiseL2SVMCostLayer : public CostLayer {
+ protected:
+  float _a, _b;
+  void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
+  void bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType);
+ public:
+  EltwiseL2SVMCostLayer(ConvNet* convNet, PyObject* paramsDict);
+};
+
+
 #endif	/* LAYER_CUH */
 

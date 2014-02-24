@@ -168,6 +168,54 @@ __global__ void kLogregCostGrad(float* y_l, float* labels, float* dE_dy_l, const
     }
 }
 
+
+/*
+         coeff will only be used in gradient descent
+      all_cost =  max(_a - y * (lables - _b), 0)^2
+      pre_grad =  max(_a - y * (labels - _b), 0)
+ */
+
+__global__ void kEltwiseL2SVMCost(float* ydata, float* ldata, float* pre_grad, float* all_cost, float a, float b, int numCases, int numTasks, int per_thread_case) {
+  const int task_id = blockIdx.x;
+  const int start_tx = threadIdx.x * per_thread_case;
+  const int end_tx = min(start_tx + per_thread_case, numCases);
+  if (task_id >= numTasks) {
+    return;
+  }
+  for (int c_id = start_tx; c_id < end_tx; ++c_id) {
+    int pos = task_id * numCases + c_id;
+    float tmp = fmaxf(a - ydata[pos] * (ldata[pos] - b), 0);
+    pre_grad[pos] = tmp;
+    all_cost[pos] = tmp*tmp;
+  }
+}
+
+/*
+ *  Note: The negative of gradient for gradient descent 
+ *  pre_grad_data = max(_a - y * (labels - _b), 0)
+ *  grad = pre_grad_data * -(labels - _b) * _coeff * (-1)
+ *       = pre_grad_data *  (labels - _b) * _coeff
+ *             
+ */
+template <bool add>
+__global__ void kEltwiseL2SVMGrad(float *ldata, float *pre_grad_data,  float* grad, float b, float coeff, int numCases, int numTasks, int per_thread_case) {
+    const int task_id = blockIdx.x;
+    const int start_tx = threadIdx.x * per_thread_case;
+    const int end_tx = min(start_tx + per_thread_case, numCases);
+    if (task_id >= numTasks) {
+      return;
+    }
+    for (int c_id = start_tx; c_id < end_tx; ++c_id) {
+      int pos = task_id * numCases + c_id;
+      int v = pre_grad_data[pos] * (ldata[pos] - b) * coeff;
+      if (add) {
+        grad[pos] += v;
+      } else {
+        grad[pos] = v;
+      }
+    }  
+}
+
 /*
  * dE_dy_l: (numOut, numCases)
  * y_l:     (numOut, numCases)
@@ -399,4 +447,41 @@ void computeEltwiseLogregGrad(NVMatrix& indmap, NVMatrix& predmap, NVMatrix& tar
     kEltwiseLogregGrad<true><<<blocks, threads>>>(predmap.getDevData(), indmap.getDevData(), target.getDevData(), numCases, numTasks, per_thread_case, coeff);
   }
   getLastCudaError("computeEltwiseLogregGrad: Kernel execution failed");
+}
+
+void computeEltwiseL2SVMCost(NVMatrix& labels, NVMatrix& y, NVMatrix & pre_grad, NVMatrix& all_cost, float a,float  b) {
+  int numCases = y.getNumCols();
+  int numTasks = y.getNumRows();
+  assert(labels.getNumCols() == numCases);
+  assert(labels.getNumRows() == numTasks);
+  assert(!labels.isTrans());
+  assert(!y.isTrans());
+  assert(labels.isContiguous());
+  assert(y.isContiguous());
+
+  pre_grad.resize(numTasks, numCases);
+  all_cost.resize(numTasks, numCases);
+  dim3 threads(ELTL2SVM_ERR_THREADS_X, 1);
+  dim3 blocks(numTasks, 1); // Ensure the numTasks will not exceed GPU's capacity
+  int per_thread_case = DIVUP( numCases, ELTLOGREG_ERR_THREADS_X);
+  kEltwiseL2SVMCost<<<blocks, threads>>>(y.getDevData(), labels.getDevData(), pre_grad.getDevData(), all_cost.getDevData(), a, b, numCases, numTasks, per_thread_case);
+  getLastCudaError("computeEltwiseL2SVMCost: Kernel execution failed");
+}
+
+void computeEltwiseL2SVMGrad(NVMatrix& labels, NVMatrix& pre_grad, NVMatrix& target, bool add, float b, float coeff) {
+  int numCases = labels.getNumCols();
+  int numTasks = labels.getNumRows();
+  assert(pre_grad.getNumCols() == numCases);
+  assert(pre_grad.getNumRows() == numTasks);
+  
+  dim3 threads(ELTL2SVM_ERR_THREADS_X, 1);
+  dim3 blocks(numTasks, 1); // Ensure the numTasks will not exceed GPU's capacity
+  int per_thread_case = DIVUP( numCases, ELTLOGREG_ERR_THREADS_X);
+  if (!add) {
+    target.resize(numTasks, numCases);
+    kEltwiseL2SVMGrad<false><<<blocks, threads>>>(labels.getDevData(), pre_grad.getDevData(),target.getDevData(), b, coeff, numCases, numTasks, per_thread_case);
+  } else {
+    kEltwiseL2SVMGrad<true><<<blocks, threads>>>(labels.getDevData(), pre_grad.getDevData(), target.getDevData(), b, coeff, numCases, numTasks, per_thread_case);
+  }
+
 }

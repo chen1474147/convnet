@@ -38,14 +38,15 @@
 #define LOGREG_ERR_THREADS_Y        1
 
 #define ELTLOGREG_ERR_THREADS_X        256
-
+#define ELTL2SVM_ERR_THREADS_X 256
 
 void computeLogregCost(NVMatrix& labels, NVMatrix& probs, NVMatrix& labelLogProbs_out, NVMatrix& correctProbs_out);
 void computeLogregGrad(NVMatrix& labels, NVMatrix& probs, NVMatrix& target, bool add, float coeff);
 void computeSoftmaxGrad(NVMatrix& acts, NVMatrix& actsGrad, NVMatrix& target, bool add);
 void computeEltwiseLogregCost(NVMatrix& indmap, NVMatrix& predmap, NVMatrix & indlogpred, NVMatrix& correctprobs);
 void computeEltwiseLogregGrad(NVMatrix& indmap, NVMatrix& predmap, NVMatrix& target, bool add, float coeff);
-
+void computeEltwiseL2SVMCost(NVMatrix& labels, NVMatrix& y, NVMatrix & pre_grad, NVMatrix& all_cost, float a, float b);
+void computeEltwiseL2SVMGrad(NVMatrix& labels, NVMatrix& pre_grad, NVMatrix& grad, bool add, float b, float coeff); 
 // Numerical stability optimization: this routine combines computeLogregGrad with computeSoftmaxGrad
 // to avoi dividing and then multiplying by quantities that may be near zero.
 void computeLogregSoftmaxGrad(NVMatrix& labels, NVMatrix& probs, NVMatrix& target, bool add, float coeff);

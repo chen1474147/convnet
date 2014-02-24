@@ -650,6 +650,32 @@ void EltwiseSumLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PAS
 
 /* 
  * =======================
+ * EltwiseMulLayer
+ * =======================
+ */
+EltwiseMulLayer::EltwiseMulLayer(ConvNet* convNet, PyObject* paramsDict) : Layer(convNet, paramsDict, false) {
+}
+
+void EltwiseMulLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  if (scaleTargets == 0) {  // input ==> getActs()
+    _inputs[inpIdx]->copy(getActs());
+  } else {
+    getActs().eltwiseMult(*_inputs[inpIdx]);
+  }
+}
+
+void EltwiseMulLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  if (scaleTargets == 0) { // The number of input is exactly two
+    v.eltwiseMult(_prev[1 - inpIdx]->getActs(), _prev[inpIdx]->getActsGrad());
+  } else {
+    NVMatrix temp_grads;
+    v.eltwiseMult(_prev[1 - inpIdx]->getActs(), temp_grads);
+    _prev[inpIdx]->getActsGrad().add(temp_grads);
+  }
+}  
+
+/* 
+ * =======================
  * EltwiseMaxLayer
  * =======================
  */
@@ -965,6 +991,8 @@ CostLayer& CostLayer::makeCostLayer(ConvNet* convNet, string& type, PyObject* pa
         return *new SumOfSquaresCostLayer(convNet, paramsDict);
     } else if (type == "cost.eltlogreg") {
       return *new EltwiseLogregCostLayer(convNet, paramsDict);
+    } else if (type == "cost.eltl2svm") {
+      return *new EltwiseL2SVMCostLayer(convNet, paramsDict);
     }
     throw string("Unknown cost layer type ") + type;
 }
@@ -1057,4 +1085,34 @@ void EltwiseLogregCostLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTarge
   computeEltwiseLogregGrad(indmap, predmap, target, scaleTargets == 1, _coeff);
 }
 
+/* 
+ * =====================
+ * EltwiseL2SVMCostLayer
+     Calculate the following cost function
+        1/2 * _coeff * max(_a - y * (lables - _b), 0)^2
+ * =====================
+ */
+EltwiseL2SVMCostLayer::EltwiseL2SVMCostLayer(ConvNet* convNet, PyObject* paramsDict) : CostLayer(convNet, paramsDict, false) {
+  _a = pyDictGetFloat(paramsDict, "a");
+  _b = pyDictGetFloat(paramsDict, "b");
+}
 
+void EltwiseL2SVMCostLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  if (inpIdx == 0) {
+    NVMatrix& labels = *_inputs[0];
+    NVMatrix& y = *_inputs[1];
+    NVMatrix& pre_grad = getActs(), all_cost;
+    int numCases = labels.getNumElements();
+    computeEltwiseL2SVMCost(labels, y, pre_grad, all_cost, _a, _b);
+    _costv.clear();
+    _costv.push_back( all_cost.sum() * 0.5 / numCases); // without multiplied by _coeff
+  }
+}
+
+void EltwiseL2SVMCostLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  assert(inpIdx == 1);
+  NVMatrix& labels = _prev[0]->getActs();
+  NVMatrix& grad = _prev[1]->getActsGrad();
+  grad.resize(labels);
+  computeEltwiseL2SVMGrad(labels, getActs(), grad, scaleTargets == 1, _b, _coeff);
+}
