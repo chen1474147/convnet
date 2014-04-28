@@ -24,6 +24,8 @@ class TestConvNet(ConvNet):
         self.need_gpu |= self.op.get_value('show_estimation') is not None
         self.need_gpu |= self.op.get_value('save_feature_name') is not None
         self.need_gpu |= self.op.get_value('analyze_feature_name') is not None
+        self.need_gpu |= self.op.get_value('test_only') is not None
+        self.need_gpu |= self.op.get_value('do_evaluation') is not None
         #self.need_gpu |= self.op.get_value('ubd_image_folder') is not None
         if self.need_gpu:
             ConvNet.get_gpus( self )
@@ -52,22 +54,78 @@ class TestConvNet(ConvNet):
                 raise TestConvNetError(' Please Specify the path to save features')
             self.feature_idx = self.get_layer_idx(self.op.get_value('analyze_feature_name'))
             feature_name =  self.op.get_value('analyze_feature_name')
-            layer_list = [(9,1),(3,2),(5,1),(3,2), (5,1),(3,2)]
-            d = {'conv1':0, 'pool1':1, 'conv2':2,'pool2':3,'conv3':4,\
-                 'pool3':5, 'conv3_0':4, 'conv3_1':4, 'conv3_max':4}
-            extra_d = {'fc_i2':-1, 'fc_ij2':-2, \
-                       'fc_ubd2':-3, 'cnorm1':-4, \
-                       'data':-5, 'rnorm2':-5, 'rnorm1':-6}
-            if feature_name not in d and feature_name not in extra_d:
-                raise TestConvNetError('feature %s is not supported' % feature_name)
-            if feature_name in d:
-                self.layer_filter_size_list = layer_list[0:d[feature_name]+1]
-            ### write feature here 
+            # layer_list = [(9,1),(3,2),(5,1),(3,2), (5,1),(3,2)]
+            # d = {'conv1':0, 'pool1':1, 'conv2':2,'pool2':3,'conv3':4,\
+            #      'pool3':5, 'conv3_0':4, 'conv3_1':4, 'conv3_max':4}
+            # extra_d = {'fc_i2':-1, 'fc_ij2':-2, \
+            #            'fc_ubd2':-3, 'cnorm1':-4, \
+            #            'data':-5, 'rnorm2':-5, 'rnorm1':-6}
+            # if feature_name not in d and feature_name not in extra_d:
+            #     raise TestConvNetError('feature %s is not supported' % feature_name)
+            # if feature_name in d:
+            #     self.layer_filter_size_list = layer_list[0:d[feature_name]+1]
+            l = self.get_backtrack_layer_list(self.feature_idx)
+            self.layer_filter_size_list = self.get_backtrack_filter_size_list(l[:-1])
+            ### write feature here
+    def get_backtrack_filter_size_list(self,l):
+        res_l = []
+        convset = set(['conv', 'pool'])
+        for x in l:
+            if x['type'] == 'conv':
+                res_l += [(x['filterSize'][0], x['stride'][0], -x['padding'][0])]
+            elif x['type'] == 'pool':
+                res_l += [(x['sizeX'],x['stride'], x['start'])]
+            else:
+                continue
+        print res_l
+        return res_l
     def init_model_lib(self):
         if self.need_gpu:
             ConvNet.init_model_lib(self)
     def plot_cost(self):
-        raise TestConvNetError(' I haven''t finished this part yet')
+        if self.show_cost not in self.train_outputs[0][0]:
+            raise ShowNetError("Cost function with name '%s' not defined by given convnet." % self.show_cost)
+        train_errors = [o[0][self.show_cost][self.cost_idx] for o in self.train_outputs]
+        test_errors = [o[0][self.show_cost][self.cost_idx] for o in self.test_outputs]
+        numbatches = len(self.train_batch_range)
+        test_errors = np.row_stack(test_errors)
+        test_errors = np.tile(test_errors, (1, self.testing_freq))
+        test_errors = list(test_errors.flatten())
+        test_errors += [test_errors[-1]] * max(0,len(train_errors) - len(test_errors))
+        test_errors = test_errors[:len(train_errors)]
+        if self.batch_size == -1:
+            numepochs = len(train_errors) / float(numbatches)
+        else:
+            numepochs = len(train_errors) * self.batch_size  / float(len(self.train_batch_range))
+        pl.figure(1)
+        x = range(0, len(train_errors))
+
+        pl.plot(x, train_errors, 'k-', label='Training set')
+        
+        pl.plot(x, test_errors, 'r-', label='Test set')
+
+        pl.legend()
+        if self.batch_size == -1:
+            ticklocs = range(numbatches, len(train_errors) - len(train_errors) % numbatches + 1, numbatches)
+        else:
+            t = np.ceil(numbatches / self.batch_size) * self.batch_size
+            ## approximate the time for change 
+            ticklocs = range(t, len(train_errors) * self.batch_size, numbatches)
+        epoch_label_gran = int(ceil(numepochs / 20.)) # aim for about 20 labels
+        epoch_label_gran = int(ceil(float(epoch_label_gran) / 10) * 10) # but round to nearest 10
+        if self.batch_size == -1:
+            ticklabels = map(lambda x: str((x[1] / numbatches)) if x[0] % epoch_label_gran == epoch_label_gran-1 else '', enumerate(ticklocs))
+        else:
+            ticklabels = map(lambda x: str((x / numbatches)) if np.floor(x / numbatches) % epoch_label_gran == 0  else '', ticklocs)
+        # pl.gca().set_yscale('log')
+      
+        pl.xticks(ticklocs, ticklabels)
+        pl.xlabel('Epoch')
+
+#        pl.ylabel(self.show_cost)
+        pl.title(self.show_cost)
+
+        #raise TestConvNetError(' I haven''t finished this part yet')
     def make_filter_fig(self, filters, filter_start, fignum, _title, num_filters, combine_chans):
         raise TestConvNetError(' I haven''t finished this part yet')
     def plot_filters(self):
@@ -194,13 +252,16 @@ class TestConvNet(ConvNet):
                 s = np.sqrt(feature_dim / feature_channel)
                 plot_respose = data[-1].transpose().reshape((s,s,feature_channel, num_data), order='F')
                 self.save_image_respose(plot_data, plot_respose, \
-                                        'batch_' + str(b_num) + '_res')
-            elif self.save_res_patch in {'all','average', 'allpatchdata'}:
+                                        'batch_' + str(b_num) + \
+                                        '_feature_' + feature_name)
+            elif self.save_res_patch in set(['all','average', 'allpatchdata']):
                 plot_data = self.test_data_provider.get_plottable_data(data[0])/255.0
                 s = np.sqrt(feature_dim / feature_channel)
                 plot_respose = data[-1].transpose().reshape((s,s,feature_channel, num_data), order='F')
+                print plot_data.shape, plot_respose.shape
                 self.save_image_res_patch(plot_data, plot_respose, \
-                                          'batch_' + str(b_num) + '_res')
+                                          'batch_' + str(b_num) + \
+                                          '_feature_%s' % feature_name)
             elif self.save_indmap_show == 'all':
                 plot_data = self.test_data_provider.get_plottable_data(data[0])/255.0
                 
@@ -379,13 +440,13 @@ class TestConvNet(ConvNet):
         nrow = (sp[2]-1)/MAX_IMAGE_ROW + 1 + 1
         t = 0
         plt.rcParams['figure.figsize'] = 15, min(nrow * 2, 10)
-        bbox = list(iu.back_track_filter_range(layer_list, (0,0,0,0)))
-        avgpatches = np.zeros((bbox[2], bbox[3] ,imgdata.shape[2], sp[2]), dtype=np.float32)
-        avgc = np.zeros((sp[2]), dtype=np.int32)
-        
         box = list(iu.back_track_filter_range(layer_list, (0,0,0,0)))
+        print 'back_track result is ',
+        print  box
+        avgpatches = np.zeros((box[2]-box[0]+1, box[3]-box[1]+1 ,imgdata.shape[2], sp[2]), dtype=np.float32)
+        avgc = np.zeros((sp[2]), dtype=np.int32)                
         tc = imgdata[...,0].shape[2]
-        curpatches = np.zeros((box[2],box[3], tc, sp[2]),dtype=np.float32)
+        curpatches = np.zeros((box[2]-box[0] +1,box[3]-box[1]+1, tc, sp[2]),dtype=np.float32)
         sumpatches = np.zeros( imgdata[...,0].shape )
         indpatches = np.zeros( imgdata[...,0].shape,dtype=np.bool )
         patches = np.zeros( imgdata[...,0].shape )
@@ -393,7 +454,7 @@ class TestConvNet(ConvNet):
         saveimgall = True if self.save_res_patch =='all' else False
         savepatchall = True if self.save_res_patch=='allpatchdata' else False
         if savepatchall:
-            allpatches = np.zeros((box[2],box[3], tc, sp[2], sp[3]),dtype=np.float32)
+            allpatches = np.zeros((box[2]-box[0]+1,box[3]-box[1]+1, tc, sp[2], sp[3]),dtype=np.float32)
         if reorder_channel is True and sp[2] == 16:
             if  self.op.get_value('analyze_feature_name') == 'conv3': 
                 clist = [ 9, 2, 8,12,4, 7, 0, 3,\
@@ -423,24 +484,35 @@ class TestConvNet(ConvNet):
             curpatches[:] = 0
             for cidx in range(sp[2]):
                 channel = clist[cidx]
-                patches[:] = 0
+                #patches[:] = 0
                 index = am[channel, i]
                 c = index / sp[0]
                 r = index - c * sp[0]
                 bbox = list(iu.back_track_filter_range(layer_list, (r,c,r,c)))
-                if bbox[0] > imgdata.shape[0] or bbox[1] > imgdata.shape[1]:
-                    #plt.imshow(patches)
+                # print bbox,
+                # print ' cidx=%d ' % cidx
+                if abs(bbox[0]) >= imgdata.shape[0] or \
+                  abs(bbox[1]) >= imgdata.shape[1]:
                     continue
-                bbox[2] = min(bbox[2], imgdata.shape[0])
-                bbox[3] = min(bbox[3], imgdata.shape[1])
-                
-                avgpatches[:bbox[2]-bbox[0],:bbox[3]-bbox[1],:,cidx] += \
-					imgdata[ bbox[0]:bbox[2], bbox[1]:bbox[3],:, i]
+                # bbox[2] = min(bbox[2], imgdata.shape[0])
+                # bbox[3] = min(bbox[3], imgdata.shape[1])
+                ### copy with padding if neccessary
+                s_r = max(bbox[0], 0)
+                s_c = max(bbox[1], 0)
+                t_r = 0 if bbox[0] >=0  else -bbox[0]
+                t_c = 0 if bbox[1] >=0  else -bbox[1] 
+                l_r = min(bbox[2] - bbox[0] + 1 - t_r, imgdata.shape[0] - s_r)
+                l_c = min(bbox[3] - bbox[1] + 1 - t_c, imgdata.shape[1] - s_c)
+                if bbox[0] < 0:
+                    print 's_r = %d, s_c = %d, t_r = %d, t_c = %d, l_r = %d, l_c = %d' % (s_r, s_c, t_r, t_c, l_r, l_c)
+                curpatches[t_r:t_r+l_r,t_c:t_c+l_c,:,cidx] = imgdata[s_r:s_r + l_r, s_c:s_c + l_c,:, i]                 
+                ###
+                avgpatches[:bbox[2]-bbox[0]+1,:bbox[3]-bbox[1]+1,:,cidx] += \
+					curpatches[:,:,:,cidx]
                 avgc[cidx] += 1
-                curpatches[:bbox[2]-bbox[0],:bbox[3]-bbox[1],:,cidx] = imgdata[ bbox[0]:bbox[2], bbox[1]:bbox[3],:, i]
-                patches[bbox[0]:bbox[2], bbox[1]:bbox[3],:] = imgdata[ bbox[0]:bbox[2], bbox[1]:bbox[3],:, i]
-                sumpatches[bbox[0]:bbox[2], bbox[1]:bbox[3],:] += imgdata[ bbox[0]:bbox[2], bbox[1]:bbox[3],:, i]
-                indpatches[bbox[0]:bbox[2], bbox[1]:bbox[3],:] = True
+                #patches[:bbox[2]+1, bbox[1]:bbox[3]+1,:] = curpatches[:,:,:,cidx]
+                sumpatches[s_r:s_r + l_r, s_c:s_c+l_c,:] += imgdata[s_r:s_r + l_r, s_c:s_c + l_c,:, i]
+                indpatches[s_r:s_r+l_r, s_c:s_c+l_c,:] = True
                 
             coverpatch = np.zeros( imgdata[...,0].shape)
             coverpatch[indpatches] = imgdata[indpatches,i]
@@ -896,10 +968,105 @@ class TestConvNet(ConvNet):
                      'imgpath':imgpath}
             pickle(iu.fullfile(save_folder, f + '.detect'), saved)
             print 'Finish %s ' % f
+    def get_test_error(self):
+        # This will only be used when batch_size is not empty
+        # Attention
+        next_data = self.get_next_batch(train=False)
+        test_outputs = []
+        num_cases = []
+        while True:
+            data = next_data
+            num_cases += [data[2][0].shape[-1]]
+            self.start_batch(data, train=False)
+            next_start_batch_idx = self.test_data_provider.curr_batchnum
+            load_next = (not self.test_one) and (next_start_batch_idx != 0)
+            if load_next:
+                next_data = self.get_next_batch(train=False)
+            test_outputs += [self.finish_batch()]
+            print "batch %d: %s" % (data[1], str(test_outputs[-1]))
+            if not load_next:
+                break
+            sys.stdout.flush()
+        return self.aggregate_test_outputs(test_outputs)
+    def norm(self,x):
+        return sum(x**2)
+    def calc_MPJPE(self, est, gt, num_joints):
+        """
+        est, gt will be dim X ndata matrix
+        dim will be dim_data (2 or 3) x num_joints
+        """
+        dim_data = gt.shape[0]/num_joints
+        ndata = gt.shape[1]
+        est = est.reshape((dim_data, num_joints, ndata),order='F')
+        gt = gt.reshape((dim_data, num_joints, ndata),order='F')
+        print est[:,[0,2,3],0]
+        print gt[:,[0,2,3],0]
+        return [np.sum(np.sqrt(np.sum((est - gt) ** 2,axis=0)).flatten())/num_joints, ndata]        
+    def evaluate_output(self):
+        import scipy.io as sio
+        next_data = self.get_next_batch(train=False)[2]
+        test_outputs = []
+        num_cases = []
+        output_layer_idx = self.get_layer_idx(self.op.get_value('do_evaluation'))
+        data_dim = self.model_state['layers'][output_layer_idx]['outputs']
+        test_outputs= []
+        tosave_pred = []
+        tosave_indexes = []
+        while True:
+            data = next_data
+            num_cases += [data[0].shape[-1]]
+            buf = np.require(np.zeros((data[0].shape[-1], data_dim),\
+                                      dtype=n.single), \
+                             requirements='C')
+            data += [buf]
+            self.libmodel.startFeatureWriter(data, output_layer_idx)
+            cur_batch_indexes = self.test_data_provider.data_dic['cur_batch_indexes']
+            next_start_batch_idx = self.test_data_provider.curr_batchnum
+            load_next = (not self.test_one) and (next_start_batch_idx!=0)
+            if load_next:
+                next_data = self.get_next_batch(train=False)[2]
+            self.finish_batch()
+            test_outputs += [self.calc_MPJPE(buf.T, data[1], self.test_data_provider.num_joints)]
+            print test_outputs[-1]
+            if self.save_evaluation:
+                tosave_pred += [ buf.T]
+                tosave_indexes += cur_batch_indexes.flatten().tolist()
+            if not load_next:
+                break
+            sys.stdout.flush()
+        a = 0
+        b = 0
+        for x in test_outputs:
+           a = a + x[0]
+           b = b + x[1]
+        print 'MPJPE is %.6f, a, b = %.6f, %.6f' % ((a/b), a,b)
+        if self.save_evaluation:
+            saved = dict()
+            saved['prediction'] = np.concatenate(tosave_pred, axis=-1) * self.test_data_provider.max_depth;
+            saved['images_path'] = [self.test_data_provider.images_path[x] for x in tosave_indexes]
+            saved['oribbox'] = self.test_data_provider.batch_meta['oribbox'][...,tosave_indexes].reshape((4,-1),order='F')
+            sio.savemat(self.save_evaluation, saved)
             
-        
+    def get_backtrack_layer_list(self, layer_idx):
+        """
+        This function can be used for generating the back trackted layer list
+        """
+        res_list =  [self.model_state['layers'][layer_idx]]
+        while ('inputLayers' in res_list[0]):
+            ### If there are multiple input, take the 0-th layer
+            l = res_list[0]['inputLayers'][0]
+            if l['type'] == 'data':
+                break
+            res_list = [l] + res_list
+        return res_list
+
+            
     def start(self):
         self.op.print_values()
+        if self.test_only:
+            self.test_outputs += [self.get_test_error()]
+            self.print_test_results()
+            sys.exit(0)
         if self.analyze_output:
             self.show_prediction()
         if self.show_estimation:
@@ -917,14 +1084,18 @@ class TestConvNet(ConvNet):
                 self.save_feature()
         elif self.save_cost_path:
             self.save_cost()
+        elif self.do_evaluation:
+            self.evaluate_output()
+        elif self.show_cost:
+            self.plot_cost()    
         plt.show()        
         sys.exit(0)
-
+    
     @classmethod
     def get_options_parser(cls):
         op = ConvNet.get_options_parser()
         for option in list(op.options):
-            if option not in ('gpu', 'load_file', 'train_batch_range', 'test_batch_range', 'data_path', 'minibatch_size', 'layer_params'):
+            if option not in ('gpu', 'load_file', 'train_batch_range', 'test_batch_range', 'data_path', 'minibatch_size', 'layer_params', 'batch_size', 'test_only', 'test_one'):
                 op.delete_option(option)
         op.add_option("analyze-output", "analyze_output", StringOptionParser, "Show specified objective function")
         op.add_option("label-idx", "label_idx", IntegerOptionParser, "The layer idx, with which the output compare") 
@@ -949,7 +1120,12 @@ class TestConvNet(ConvNet):
         # op.add_option("cost-idx", "cost_idx", StringOptionParser, "Cost function return value index for --show-cost", default='0')
         op.add_option('ind-type', 'ind_type', StringOptionParser, 'Indicating whether this is part or joint indicator')
         op.add_option('save-cost-path', 'save_cost_path', StringOptionParser, 'the path to save costs')
-        op.add_option("view-as-train", 'view_as_train', IntegerOptionParser, "When regard evaluted data as training batch") 
+        op.add_option("view-as-train", 'view_as_train', IntegerOptionParser, "When regard evaluted data as training batch")
+        op.add_option('do-evaluation', 'do_evaluation', StringOptionParser, 'Do seperate evaluation steps')
+        op.add_option('evaluation-type', 'evaluation_type', StringOptionParser, 'Specify which kinds of measure will be used')
+        op.add_option('save-evaluation', 'save_evaluation', StringOptionParser, 'The folder for saving evaluation results')
+        op.add_option('show-cost', 'show_cost', StringOptionParser, 'The name of cost to show')
+        op.add_option('cost-idx', 'cost_idx', IntegerOptionParser, 'The index of cost for showing --show-cost', default=0)
         op.options['load_file'].default = None
         
         return op

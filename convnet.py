@@ -29,11 +29,23 @@ from data import *
 from options import *
 from gpumodel import *
 import sys
+### For cluster use
+sys.path.append('/home/grads/sijinli2/I_ProgramFile/I_Python/Project/I_utils')
+sys.path.append('/home/grads/sijinli2/I_ProgramFile/I_Python/Project')
+import iutils as iu
+ppath = '/home/grads/sijinli2/Projects/DHMLPE/Python'
+sys.path.append(iu.fullfile(ppath, 'task'))
+sys.path.append(iu.fullfile(ppath, 'src'))
+### 
 import math as m
 import layer as lay
 from iconvdata import *
 from convdata import *
+from noah_convdata import *
+from dhmlpe_convdata import *
 from os import linesep as NL
+
+## cluster use only
 
 #import pylab as pl
 
@@ -42,6 +54,11 @@ class ConvNet(IGPUModel):
         filename_options = []
         dp_params['multiview_test'] = op.get_value('multiview_test')
         dp_params['crop_border'] = op.get_value('crop_border')
+        dp_params['batch_size'] = op.get_value('batch_size')
+        try:
+            dp_params['shuffle_data'] = op.get_value('shuffle_data')
+        except:
+            dp_params['shuffle_data'] = 0
         IGPUModel.__init__(self, "ConvNet", op, load_dic, filename_options, dp_params=dp_params)
         
     def import_model(self):
@@ -140,7 +157,11 @@ class ConvNet(IGPUModel):
         
     def print_test_status(self):
         pass
-        
+    def get_num_batches_done(self):
+        if self.batch_size > 0:
+            return  (len(self.train_batch_range) * (self.epoch - 1) + self.batchnum - self.train_batch_range[0] + 1) / self.batch_size
+        else:
+            return (len(self.train_batch_range) * (self.epoch - 1) + self.batchnum - self.train_batch_range[0] + 1)
     def print_test_results(self):
         print ""
         print "======================Test output======================"
@@ -179,12 +200,14 @@ class ConvNet(IGPUModel):
         op.add_option("layer-params", "layer_params", StringOptionParser, "Layer parameter file")
         op.add_option("check-grads", "check_grads", BooleanOptionParser, "Check gradients and quit?", default=0, excuses=['data_path','save_path','train_batch_range','test_batch_range'])
         op.add_option("multiview-test", "multiview_test", BooleanOptionParser, "Cropped DP: test on multiple patches?", default=0, requires=['logreg_name'])
-        op.add_option("crop-border", "crop_border", IntegerOptionParser, "Cropped DP: crop border size", default=4, set_once=True)
+        op.add_option("crop-border", "crop_border", IntegerOptionParser, "Cropped DP: crop border size", default=-1, set_once=True)
         op.add_option("logreg-name", "logreg_name", StringOptionParser, "Cropped DP: logreg layer name (for --multiview-test)", default="")
         op.add_option("conv-to-local", "conv_to_local", ListOptionParser(StringOptionParser), "Convert given conv layers to unshared local", default=[])
         op.add_option("unshare-weights", "unshare_weights", ListOptionParser(StringOptionParser), "Unshare weight matrices in given layers", default=[])
         op.add_option("conserve-mem", "conserve_mem", BooleanOptionParser, "Conserve GPU memory (slower)?", default=0)
-                
+        ## valid for data provider loading images directly
+        op.add_option("batch-size", "batch_size", IntegerOptionParser, "Determine how many data can be loaded in a batch. Note: only valid for data providing loading images directly", default=-1) 
+        op.add_option("shuffle-data", "shuffle_data", IntegerOptionParser, "whether to shullfe the data", default=0)
         op.delete_option('max_test_err')
         op.options["max_filesize_mb"].default = 0
         op.options["testing_freq"].default = 50
@@ -212,7 +235,11 @@ class ConvNet(IGPUModel):
         DataProvider.register_data_provider('largejtindlack_shoulder', 'LARGEJTINDLACK_SHOULDER_DATAPROVIDER', LargeJtIndLack_SHOULDER_DataProvider)
         DataProvider.register_data_provider('largejtind2', 'LARGEJTIND2_DATAPROVIDER', LargeJtInd2_DataProvider)
         DataProvider.register_data_provider('largejtind2mask', 'LARGEJTIND2MASK_DATAPROVIDER', LargeJtInd2Mask_DataProvider)
-        DataProvider.register_data_provider('h36mmono', 'H36MMONODATAPROVIDER', H36MMonoDataProvider) 
+        DataProvider.register_data_provider('h36mmono', 'H36MMONODATAPROVIDER', H36MMonoDataProvider)
+        DataProvider.register_data_provider('croppedimagenet', 'CROPPEDIMAGENETDATAPROVIDER', CroppedImageNetDataProvider)
+        DataProvider.register_data_provider('croppeddhmlpejt', 'CROPPEDDHMLPEJOINTDATAPROVIDER', CroppedDHMLPEJointDataProvider)
+        DataProvider.register_data_provider('croppeddhmlpejtocc', 'CROPPEDDHMLPEJOINTOCCDATAPROVIDER', CroppedDHMLPEJointOccDataProvider)
+        DataProvider.register_data_provider('croppeddhmlpedepthjt', 'CROPPEDDHMLPEDEPTHJOINTDATAPROVIDER', CroppedDHMLPEDepthJointDataProvider)
         return op
     
 if __name__ == "__main__":

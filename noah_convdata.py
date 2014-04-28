@@ -40,6 +40,7 @@ class CroppedImageNetDataProvider(CroppedImageDataProvider):
 
         ## Add alias name ( Since it will be called by cost function)
         self.batch_meta['label_names'] = self.batch_meta['labelnames']  #
+        # override images_path
         self.images_path = map(lambda x:iu.fullfile(data_dir,x), \
                                 map(lambda x:iu.getpath(x, 1),\
                                     self.batch_meta['images_path']))
@@ -62,4 +63,6 @@ class CroppedImageNetDataProvider(CroppedImageDataProvider):
         labels = map(lambda x:self.labels[0, x], dic['cur_batch_indexes'])
         dic['labels'] = labels;
         return dic
+    def get_data_dims(self, idx=0):
+        return iprod(self.input_image_dim) if idx==0 else 1
 
