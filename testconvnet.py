@@ -12,6 +12,8 @@ from options import *
 import pylab as pl
 import matplotlib.pyplot as plt
 import iutils as iu
+sys.path.append('/home/grads/sijinli2/Projects/DHMLPE/Python/src/')
+sys.path.append('/media/M_FILE/cscluster/Projects/DHMLPE/Python/src/')
 class TestConvNetError(Exception):
     pass
 class TestConvNet(ConvNet):
@@ -84,7 +86,7 @@ class TestConvNet(ConvNet):
             ConvNet.init_model_lib(self)
     def plot_cost(self):
         if self.show_cost not in self.train_outputs[0][0]:
-            raise ShowNetError("Cost function with name '%s' not defined by given convnet." % self.show_cost)
+            raise TestConvNetError("Cost function with name '%s' not defined by given convnet." % self.show_cost)
         train_errors = [o[0][self.show_cost][self.cost_idx] for o in self.train_outputs]
         test_errors = [o[0][self.show_cost][self.cost_idx] for o in self.test_outputs]
         numbatches = len(self.train_batch_range)
@@ -94,37 +96,40 @@ class TestConvNet(ConvNet):
         test_errors += [test_errors[-1]] * max(0,len(train_errors) - len(test_errors))
         test_errors = test_errors[:len(train_errors)]
         if self.batch_size == -1:
-            numepochs = len(train_errors) / float(numbatches)
+            numepochs = len(train_errors) / int(numbatches)
         else:
-            numepochs = len(train_errors) * self.batch_size  / float(len(self.train_batch_range))
+            numepochs = len(train_errors) * self.batch_size  / int(len(self.train_batch_range))
         pl.figure(1)
         x = range(0, len(train_errors))
 
+        print 'numepochs=%d' % numepochs
         pl.plot(x, train_errors, 'k-', label='Training set')
         
         pl.plot(x, test_errors, 'r-', label='Test set')
-
+        print test_errors[-10:]
+        pl.ylim(0, test_errors[-1]*2)
         pl.legend()
         if self.batch_size == -1:
             ticklocs = range(numbatches, len(train_errors) - len(train_errors) % numbatches + 1, numbatches)
         else:
-            t = np.ceil(numbatches / self.batch_size) * self.batch_size
+            t = np.ceil(numbatches / self.batch_size)
             ## approximate the time for change 
-            ticklocs = range(t, len(train_errors) * self.batch_size, numbatches)
+            ticklocs = range(t, len(train_errors), numbatches/self.batch_size)
         epoch_label_gran = int(ceil(numepochs / 20.)) # aim for about 20 labels
         epoch_label_gran = int(ceil(float(epoch_label_gran) / 10) * 10) # but round to nearest 10
         if self.batch_size == -1:
             ticklabels = map(lambda x: str((x[1] / numbatches)) if x[0] % epoch_label_gran == epoch_label_gran-1 else '', enumerate(ticklocs))
         else:
-            ticklabels = map(lambda x: str((x / numbatches)) if np.floor(x / numbatches) % epoch_label_gran == 0  else '', ticklocs)
+            t = np.ceil( numbatches / self.batch_size) * epoch_label_gran
+            ticklabels = map(lambda x: str(x[1] * self.batch_size/numbatches) if np.floor(x[1] * self.batch_size/numbatches) % epoch_label_gran == 0  else '', enumerate(ticklocs))
         # pl.gca().set_yscale('log')
-      
+        pl.plot(x, test_errors, 'r-', label='Test set')
         pl.xticks(ticklocs, ticklabels)
         pl.xlabel('Epoch')
 
-#        pl.ylabel(self.show_cost)
+        pl.ylabel(self.show_cost)
         pl.title(self.show_cost)
-
+        
         #raise TestConvNetError(' I haven''t finished this part yet')
     def make_filter_fig(self, filters, filter_start, fignum, _title, num_filters, combine_chans):
         raise TestConvNetError(' I haven''t finished this part yet')
@@ -191,6 +196,10 @@ class TestConvNet(ConvNet):
         testdp = self.test_data_provider
         num_batches = len(testdp.batch_range)
         print 'There are ' + str(testdp.get_num_batches(self.data_path)) + ' in directory'
+        if self.test_data_provider.batch_size > 0:
+            num_batches = (num_batches - 1)/ self.test_data_provider.batch_size + 1
+        if self.test_one:
+            num_batches = min(num_batches, 1)
         print 'There are ' + str( num_batches ) + ' in range'
         iu.ensure_dir(self.save_feature_path)
         feature_name = self.op.get_value('save_feature_name')
@@ -218,7 +227,10 @@ class TestConvNet(ConvNet):
         # analyze feature
         import scipy.io as sio
         testdp = self.test_data_provider
-        num_batches = len(testdp.batch_range)
+        if not 'batch_size' in testdp.__dict__.keys() or testdp.batch_size < 0:
+            num_batches = len(testdp.batch_range)
+        else:
+            num_batches = (len(testdp.batch_range) -1) / int(testdp.batch_size) + 1
         print 'There are ' + str(testdp.get_num_batches(self.data_path)) + ' in directory'
         print 'There are ' + str( num_batches ) + ' in range'
         iu.ensure_dir(self.save_feature_path)
@@ -250,16 +262,16 @@ class TestConvNet(ConvNet):
                 
                 plot_data = self.test_data_provider.get_plottable_data(data[0])/255.0
                 s = np.sqrt(feature_dim / feature_channel)
-                plot_respose = data[-1].transpose().reshape((s,s,feature_channel, num_data), order='F')
-                self.save_image_respose(plot_data, plot_respose, \
+                plot_response = data[-1].transpose().reshape((s,s,feature_channel, num_data), order='F')
+                self.save_image_response(plot_data, plot_response, \
                                         'batch_' + str(b_num) + \
                                         '_feature_' + feature_name)
             elif self.save_res_patch in set(['all','average', 'allpatchdata']):
                 plot_data = self.test_data_provider.get_plottable_data(data[0])/255.0
                 s = np.sqrt(feature_dim / feature_channel)
-                plot_respose = data[-1].transpose().reshape((s,s,feature_channel, num_data), order='F')
-                print plot_data.shape, plot_respose.shape
-                self.save_image_res_patch(plot_data, plot_respose, \
+                plot_response = data[-1].transpose().reshape((s,s,feature_channel, num_data), order='F')
+                print plot_data.shape, plot_response.shape
+                self.save_image_res_patch(plot_data, plot_response, \
                                           'batch_' + str(b_num) + \
                                           '_feature_%s' % feature_name)
             elif self.save_indmap_show == 'all':
@@ -439,7 +451,7 @@ class TestConvNet(ConvNet):
         MAX_IMAGE_ROW=8
         nrow = (sp[2]-1)/MAX_IMAGE_ROW + 1 + 1
         t = 0
-        plt.rcParams['figure.figsize'] = 15, min(nrow * 2, 10)
+        plt.rcParams['figure.figsize'] = 15, min(nrow * 2, 12)
         box = list(iu.back_track_filter_range(layer_list, (0,0,0,0)))
         print 'back_track result is ',
         print  box
@@ -606,29 +618,41 @@ class TestConvNet(ConvNet):
             else:
                 plt.imshow( f(allimages[...,channel])) 
         
-    def save_image_respose(self, imgdata, resdata, prename):
+    def save_image_response(self, imgdata, resdata, prename):
         if self.save_feature_path is None:
             raise TestConvNetError('Please specipy save-feature-path ')
         ndata = imgdata.shape[-1]
         print 'Begin to save reponse, there are ' + str(ndata) + ' in total'
         MAX_IMAGE_ROW = 8
-        plt.rcParams['figure.figsize'] = 15, 10
+
+        import imgproc
+        n_res = resdata[...,0].shape[-1]
+        nrow = (n_res - 1) / MAX_IMAGE_ROW + 1 + 1
+        #plt.rcParams['figure.figsize'] = 15, max(10, nrow*1.3) # width, height
+
         for i in range(ndata):
+            print '%d' % i
             img = imgdata[...,i]
             res = resdata[...,i]
-            n_res = res.shape[-1]
-            nrow = (n_res - 1)/MAX_IMAGE_ROW + 1 + 1
-            plt.subplot(nrow, MAX_IMAGE_ROW, 1)
-            plt.imshow(img)
+            # plt.subplot(nrow, MAX_IMAGE_ROW, 1)
+            # plt.imshow(img)
             sp = (res.shape[0], res.shape[1])
-            
+            imgproc.turn_off_axis()
+            bigimage = imgproc.BigImagePlot([70,70], (nrow, MAX_IMAGE_ROW), 3,3,(1,1,1))
+            bigimage.set_same_size(False)
+            bigimage.subplot(img,0,0)
+
             for j in range(1, nrow):
                 for k in range(MAX_IMAGE_ROW):
                     idx = j * MAX_IMAGE_ROW + k
-                    plt.subplot(nrow, MAX_IMAGE_ROW, idx + 1)
-                    plt.imshow(res[..., idx - MAX_IMAGE_ROW].reshape(sp))
-            plt.savefig(iu.fullfile(self.save_feature_path, prename + '_' + str(i) + '.png'))
-            
+                    # plt.subplot(nrow, MAX_IMAGE_ROW, idx + 1)
+                    # plt.imshow(res[..., idx - MAX_IMAGE_ROW].reshape(sp))
+                    # imgproc.turn_off_axis()
+                    tmp = res[..., idx - MAX_IMAGE_ROW].reshape(sp) / max(np.abs(res[...,idx-MAX_IMAGE_ROW].flatten().max()), 1e-9)                    
+                    bigimage.subplot(tmp, j,k)
+            savename = iu.fullfile(self.save_feature_path, prename + '_' + str(i) + '.png')
+            #plt.savefig(savename)
+            bigimage.save(savename)
         
     def prepare_feature_imgae(self, fimg):
         import imgproc
@@ -756,7 +780,8 @@ class TestConvNet(ConvNet):
     def show_joints8_estimation(self):
         import iconvnet_datacvt as icvt
         import iread
-        from time import time 
+        from time import time
+        s_time = time()
         data = self.get_next_batch(train=False)[2]
         num_data = data[0].shape[-1]
         
@@ -764,10 +789,10 @@ class TestConvNet(ConvNet):
         idx = self.joint_idx
         data += [ests]
         img_size = self.test_data_provider.img_size
-        s_time = time()
+
         self.libmodel.startFeatureWriter(data, idx)
         self.finish_batch()
-        print 'It takes %.2f seconds' % (time() - s_time) 
+        print 'It takes %.2f seconds (Including Loading time)' % (time() - s_time) 
         ests = ests.transpose()
         sqdiff = ((data[1] - ests)**2).sum(axis=0)
         all_sqdiff = sqdiff.sum()
@@ -990,17 +1015,16 @@ class TestConvNet(ConvNet):
         return self.aggregate_test_outputs(test_outputs)
     def norm(self,x):
         return sum(x**2)
-    def calc_MPJPE(self, est, gt, num_joints):
+    def calc_MPJPE(self, est, gt, num_joints, is_relskel=False):
         """
         est, gt will be dim X ndata matrix
         dim will be dim_data (2 or 3) x num_joints
         """
-        dim_data = gt.shape[0]/num_joints
-        ndata = gt.shape[1]
-        est = est.reshape((dim_data, num_joints, ndata),order='F')
-        gt = gt.reshape((dim_data, num_joints, ndata),order='F')
-        print est[:,[0,2,3],0]
-        print gt[:,[0,2,3],0]
+        ndata = gt.shape[-1]
+        est = est.reshape((-1, num_joints, ndata),order='F')
+        gt = gt.reshape((-1, num_joints, ndata),order='F')
+        print est[:,[0,1,2],0]
+        print gt[:,[0,1,2],0]
         return [np.sum(np.sqrt(np.sum((est - gt) ** 2,axis=0)).flatten())/num_joints, ndata]        
     def evaluate_output(self):
         import scipy.io as sio
@@ -1012,6 +1036,9 @@ class TestConvNet(ConvNet):
         test_outputs= []
         tosave_pred = []
         tosave_indexes = []
+        is_relskel = (self.test_data_provider.feature_name_3d == 'RelativeSkel_Y3d_mono_body')
+        print 'I am using %s' % ('RelSkel' if is_relskel else 'Rel')
+        
         while True:
             data = next_data
             num_cases += [data[0].shape[-1]]
@@ -1026,10 +1053,16 @@ class TestConvNet(ConvNet):
             if load_next:
                 next_data = self.get_next_batch(train=False)[2]
             self.finish_batch()
-            test_outputs += [self.calc_MPJPE(buf.T, data[1], self.test_data_provider.num_joints)]
+            if is_relskel:
+                est = self.convert_relskel2rel(buf.T)
+                gt = self.convert_relskel2rel(data[1])
+            else:
+                est = buf.T
+                gt = data[1]
+            test_outputs += [self.calc_MPJPE(est, gt, self.test_data_provider.num_joints)]
             print test_outputs[-1]
             if self.save_evaluation:
-                tosave_pred += [ buf.T]
+                tosave_pred += [est]
                 tosave_indexes += cur_batch_indexes.flatten().tolist()
             if not load_next:
                 break
@@ -1039,7 +1072,9 @@ class TestConvNet(ConvNet):
         for x in test_outputs:
            a = a + x[0]
            b = b + x[1]
-        print 'MPJPE is %.6f, a, b = %.6f, %.6f' % ((a/b), a,b)
+        max_depth = self.test_data_provider.max_depth
+        print 'max_depth = %6f' % max_depth
+        print 'MPJPE is %.6f, a, b = %.6f, %.6f' % ((a/b) * max_depth, a,b)
         if self.save_evaluation:
             saved = dict()
             saved['prediction'] = np.concatenate(tosave_pred, axis=-1) * self.test_data_provider.max_depth;
@@ -1090,12 +1125,15 @@ class TestConvNet(ConvNet):
             self.plot_cost()    
         plt.show()        
         sys.exit(0)
-    
+    @classmethod
+    def convert_relskel2rel(cls, x):
+        import dhmlpe_features as df
+        return df.convert_relskel2rel(x)
     @classmethod
     def get_options_parser(cls):
         op = ConvNet.get_options_parser()
         for option in list(op.options):
-            if option not in ('gpu', 'load_file', 'train_batch_range', 'test_batch_range', 'data_path', 'minibatch_size', 'layer_params', 'batch_size', 'test_only', 'test_one'):
+            if option not in ('gpu', 'load_file', 'train_batch_range', 'test_batch_range', 'data_path', 'minibatch_size', 'layer_params', 'batch_size', 'test_only', 'test_one', 'shuffle_data', 'crop_one_border'):
                 op.delete_option(option)
         op.add_option("analyze-output", "analyze_output", StringOptionParser, "Show specified objective function")
         op.add_option("label-idx", "label_idx", IntegerOptionParser, "The layer idx, with which the output compare") 
