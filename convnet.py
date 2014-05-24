@@ -150,7 +150,10 @@ class ConvNet(IGPUModel):
             print "%s: " % errname,
             print ", ".join("%6f" % v for v in costs[errname]),
             if sum(m.isnan(v) for v in costs[errname]) > 0 or sum(m.isinf(v) for v in costs[errname]):
-                print "^ got nan or inf!"
+                error_str = ''
+                error_str += 'NAN ' if sum(m.isnan(v) for v in costs[errname]) > 0 else ''
+                error_str += 'INF' if sum(m.isinf(v) for v in costs[errname]) else ''
+                print "^ got nan or inf! %s" % error_str
                 #sys.exit(1)
         
     def print_train_results(self):

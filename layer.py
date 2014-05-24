@@ -161,6 +161,13 @@ class LayerParser:
     # Add parameters from layer parameter file
     def add_params(self, mcp):
         pass
+
+    # Some parameters needs to be updated when resuming training
+    def update_params(self, mcp):
+        dic, name = self.dic, self.dic['name']
+        if mcp.safe_get_bool(name, 'update', default=False):
+            dic['dropout'] = mcp.safe_get_float(name, 'dropout', default=1.0)
+        
     
     def init(self, dic):
         self.dic = dic
@@ -294,6 +301,7 @@ class LayerParser:
                     raise LayerParsingError("Layer '%s' of type '%s' requires extra parameters, but none given in file '%s'." % (l['name'], l['type'], param_cfg_path))
                 lp = layer_parsers[l['type']]().init(l)
                 lp.add_params(mcp)
+                lp.update_params(mcp)
                 lp.dic['conserveMem'] = model.op.get_value('conserve_mem')
         except LayerParsingError, e:
             print e
@@ -604,7 +612,22 @@ class NeuronLayerParser(LayerWithInputParser):
         dic['forceOwnActs'] = False
         print "Initialized neuron layer '%s', producing %d outputs" % (name, dic['outputs'])
         return dic
-
+    
+class SliceLayerParser(LayerWithInputParser):
+    def __init__(self):
+        LayerWithInputParser.__init__(self)
+    def parse(self, name, mcp, prev_layers,model=None):
+        dic = LayerWithInputParser.parse(self, name, mcp, prev_layers, model)
+        if len(dic['numInputs']) != 1:
+            raise LayerParsingError("Layer '%s': Only take one onput. Got dimensionalities: %s" % (name, ", ".join(str(s) for s in dic['numInputs'])))
+        if prev_layers[0]['usesActs'] == False:
+            raise LayerParsingError("Previous layer of %s must use Acts" % name)
+        dic['startX'] = mcp.safe_get_int(name, 'startX')
+        dic['endX'] = mcp.safe_get_int(name, 'endX')
+        dic['outputs'] = dic['endX'] - dic['startX'] + 1
+        print "Initialized SliceLayer  '%s', producing %d outputs" % (name, dic['outputs'])
+        return dic
+        
 class EltwiseSumLayerParser(LayerWithInputParser):
     def __init__(self):
         LayerWithInputParser.__init__(self)
@@ -1179,6 +1202,7 @@ layer_parsers = {'data': lambda : DataLayerParser(),
                  'eltsum': lambda : EltwiseSumLayerParser(),
                  'eltmul': lambda : EltwiseMulLayerParser(),
                  'eltmax': lambda : EltwiseMaxLayerParser(),
+                 'slice': lambda : SliceLayerParser(),
                  'neuron': lambda : NeuronLayerParser(),
                  'pool': lambda : PoolLayerParser(),
                  'rnorm': lambda : NormLayerParser(NormLayerParser.RESPONSE_NORM),

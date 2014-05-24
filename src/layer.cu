@@ -399,6 +399,8 @@ void FCLayer::bpropWeights(NVMatrix& v, int inpIdx, PASS_TYPE passType) {
     delete &prevActs_T;
 }
 
+
+
 /* 
  * =======================
  * LocalLayer
@@ -620,6 +622,38 @@ void SoftmaxLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_T
     } else {
         computeSoftmaxGrad(getActs(), v, _prev[0]->getActsGrad(), scaleTargets == 1);
     }
+}
+
+
+/* 
+ * =======================
+ * SliceLayer
+ * =======================
+ */
+SliceLayer::SliceLayer(ConvNet* convNet, PyObject* paramsDict) : Layer(convNet, paramsDict, false) {
+  _startX = pyDictGetInt(paramsDict, "startX");
+  _endX = pyDictGetInt(paramsDict, "endX");
+}
+
+void SliceLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  if (_outputs != NULL) {
+    delete _outputs; // _outputs never own data, so this is a cheap operation
+  }
+  assert(inpIdx == 0); // only one input can be accepted for now
+  _outputs = &(_inputs[inpIdx]->slice(_startX, _endX + 1, 0, -1));
+}
+
+void SliceLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  // previous layer must use act
+  _prev[inpIdx]->getActsGrad().resize(_prev[inpIdx]->getActs());
+  NVMatrix &sliced_actsgrads = (_prev[inpIdx]->getActsGrad()).slice(_startX, _endX + 1,0,-1); // a view, not copy 
+  if (scaleTargets == 0) {
+    _prev[inpIdx]->getActsGrad().inRangeInc(-1,0); // set all to zero
+    sliced_actsgrads.copy(v);
+  } else {
+    sliced_actsgrads.add(v);
+  }
+  delete &sliced_actsgrads;
 }
 
 /* 

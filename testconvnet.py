@@ -50,12 +50,15 @@ class TestConvNet(ConvNet):
         if self.op.get_value('save_feature_name'):
             if self.op.get_value('save_feature_path') is None:
                 raise TestConvNetError(' Please Specify the path to save features')
+
             self.feature_idx = self.get_layer_idx(self.op.get_value('save_feature_name'))
+            
+
         if self.op.get_value('analyze_feature_name'):
             if self.op.get_value('save_feature_path') is None:
                 raise TestConvNetError(' Please Specify the path to save features')
-            self.feature_idx = self.get_layer_idx(self.op.get_value('analyze_feature_name'))
             feature_name =  self.op.get_value('analyze_feature_name')
+            self.feature_idx = self.get_layer_idx(feature_name)
             # layer_list = [(9,1),(3,2),(5,1),(3,2), (5,1),(3,2)]
             # d = {'conv1':0, 'pool1':1, 'conv2':2,'pool2':3,'conv3':4,\
             #      'pool3':5, 'conv3_0':4, 'conv3_1':4, 'conv3_max':4}
@@ -77,6 +80,9 @@ class TestConvNet(ConvNet):
                 res_l += [(x['filterSize'][0], x['stride'][0], -x['padding'][0])]
             elif x['type'] == 'pool':
                 res_l += [(x['sizeX'],x['stride'], x['start'])]
+            elif x['type'] == 'rnorm':
+                continue
+                #res_l += [(x['size'], 1, -x['size']/2)]
             else:
                 continue
         print res_l
@@ -104,7 +110,6 @@ class TestConvNet(ConvNet):
 
         print 'numepochs=%d' % numepochs
         pl.plot(x, train_errors, 'k-', label='Training set')
-        
         pl.plot(x, test_errors, 'r-', label='Test set')
         print test_errors[-10:]
         pl.ylim(0, test_errors[-1]*2)
@@ -223,11 +228,22 @@ class TestConvNet(ConvNet):
             print 'The shape of Y is' + str(d['Y'].shape)
             sio.savemat(save_path, d)
             pickle(save_path, d)
+    @classmethod
+    def parse_params(cls, s):
+        l = s.split(',')
+        res_l = []
+        for x in l:
+            if x.find('@') != -1:
+                a = x.split('@')
+                res_l += [(a[0], int(a[1]))]
+            else:
+                res_l += [x]              
+        return res_l
     def analyze_feature(self):
         # analyze feature
         import scipy.io as sio
         testdp = self.test_data_provider
-        if not 'batch_size' in testdp.__dict__.keys() or testdp.batch_size < 0:
+        if (not 'batch_size' in testdp.__dict__.keys()) or testdp.batch_size < 0:
             num_batches = len(testdp.batch_range)
         else:
             num_batches = (len(testdp.batch_range) -1) / int(testdp.batch_size) + 1
@@ -241,6 +257,21 @@ class TestConvNet(ConvNet):
         print 'Feature dimension = ' + str(feature_dim)
         tot_data = 0
         #np.random.seed(7)
+        if self.test_one:
+            num_batches = 1
+        if self.calc_hist:
+            self.feature_params = self.parse_params(self.calc_hist)
+        if self.calc_hist and self.feature_params[0] == 'actjoint':
+            import indicatormap
+            ## Assume the 0-layer will be RGB data
+            l = self.get_backtrack_layer_list(self.feature_idx)
+            layer_filter_size_list = self.get_backtrack_filter_size_list(l) 
+            fs = iu.get_conv_fs(layer_filter_size_list)
+            s = np.int(np.sqrt(self.model_state['layers'][0]['outputs']/3.0))
+            ind_map_instance = indicatormap.IndicatorMap((s,s,3), \
+                                                fs[0],
+                                                fs[1],
+                                                True)
         for b in range(num_batches):
             epoch, b_num, data = self.get_next_batch(train=False)
             print '   Start writing batch......\t' + str(b_num)
@@ -274,6 +305,28 @@ class TestConvNet(ConvNet):
                 self.save_image_res_patch(plot_data, plot_response, \
                                           'batch_' + str(b_num) + \
                                           '_feature_%s' % feature_name)
+            elif self.calc_hist and self.feature_params[0] in set(['actjoint']):
+                dp = self.test_data_provider
+                options = dict()
+                options['num_joints'] = dp.num_joints
+                options['abs'] = True
+                options['add_background'] = True
+                options['normalize'] = 'WTA' #'sum'
+                if len(self.feature_params) > 1 and self.feature_params[1][0]=='occ':
+                    print 'Using Occlusion information'
+                    options['joint_occ'] = dp.data_dic['occ_body']
+                ndata = data[0].shape[-1]              
+                num_joints = options['num_joints']
+                jtname='joints_2d'
+                indmap = ind_map_instance.get_joints_indicatormap(dp.data_dic[jtname].reshape((2,-1),order='F').T ).reshape((-1,num_joints, ndata),order='F')
+                self.statistics['options'] = options
+                # self.statistics['indmap'] = indmap
+                # self.statistics['joints_2d'] = dp.data_dic[jtname]
+                # self.statistics['data'] = self.test_data_provider.get_plottable_data(data[0])/255.0
+                self.statistics['activation'] = data[-1].transpose().reshape((-1, feature_channel, ndata),order='F').copy()
+
+                self.calc_activation_joint_histogram(indmap, \
+                                data[-1].transpose().reshape((-1, feature_channel, ndata),order='F'),options)
             elif self.save_indmap_show == 'all':
                 plot_data = self.test_data_provider.get_plottable_data(data[0])/255.0
                 
@@ -434,6 +487,20 @@ class TestConvNet(ConvNet):
             epose = self.transform_pose_back_to_oriimg_coor(dp, epose.reshape((-1, tpose.shape[-1]),order='C'), False)
             e = icvt.calc_PCP_from_joints8( tpose, epose, 0.5, True)
 
+    def calc_activation_joint_histogram(self, joint_indicator_map, activations, options):
+        import dhmlpe_analysis as da
+        name = 'action_joint_hist'
+        if not name in self.statistics:
+            self.statistics[name] = da.calc_activation_joint_histogram(joint_indicator_map, \
+                                                                       activations, \
+                                                                       options)
+        else:
+            self.statistics[name] += da.calc_activation_joint_histogram(joint_indicator_map, \
+                                                                       activations, \
+                                                                       options)
+        ## save statistics every time: it is cheap
+        print self.statistics[name][:,0].T
+        pickle(iu.fullfile(self.save_feature_path, 'hist_statistics'), self.statistics)
     def save_image_res_patch(self,imgdata,resdata, prename, reorder_channel=True):
         import scipy.io as sio
         if self.save_feature_path is None:
@@ -451,7 +518,7 @@ class TestConvNet(ConvNet):
         MAX_IMAGE_ROW=8
         nrow = (sp[2]-1)/MAX_IMAGE_ROW + 1 + 1
         t = 0
-        plt.rcParams['figure.figsize'] = 15, min(nrow * 2, 12)
+        plt.rcParams['figure.figsize'] = 15, min(nrow * 2, 15)
         box = list(iu.back_track_filter_range(layer_list, (0,0,0,0)))
         print 'back_track result is ',
         print  box
@@ -1142,6 +1209,7 @@ class TestConvNet(ConvNet):
         op.add_option("save-estimation", "save_estimation", StringOptionParser, "save the estimation result in .mat")
         op.add_option("show-images", "show_images", StringOptionParser, "Whether to use the estimated images")
         op.add_option("save-images", "save_images", StringOptionParser, "Save the estimated images")
+        op.add_option("calc-hist", "calc_hist", StringOptionParser, "Calculate histogram based stochastics")
         op.add_option("save-feature-name", 'save_feature_name', StringOptionParser, "Save features in layers specified in save_features")
         op.add_option('forward-pass-feature', 'forward_pass_feature', IntegerOptionParser, "indicate whether to transform feature")
         op.add_option('save-feature-path', 'save_feature_path', StringOptionParser, "save layer feature in 'save_feature_path' ")

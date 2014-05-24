@@ -109,6 +109,10 @@ class CroppedImageDataProvider(DataProvider):
         # override batch_range, this is not actually the batch_range
         # just keep consistent
         self.batch_range = range(self.num_image)
+        # recheck curr_batchnum 
+        # (Remembering last times' batch_num will not help training), just keep batch consistant
+        if self.curr_batchnum not in self.batch_range:
+            self.curr_batchnum = 0
         self.curr_batchnum = min(max(self.curr_batchnum, 0), self.num_image - 1)
         # print 'Curr_batchnum = %d Test  = %s' % (self.curr_batchnum, 'True' if self.test else 'False')
         # override batch_Idx
