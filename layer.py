@@ -167,7 +167,7 @@ class LayerParser:
         dic, name = self.dic, self.dic['name']
         if mcp.safe_get_bool(name, 'update', default=False):
             dic['dropout'] = mcp.safe_get_float(name, 'dropout', default=1.0)
-        
+            print 'update dropout to %.2f successfully' % dic['dropout']
     
     def init(self, dic):
         self.dic = dic
@@ -295,13 +295,14 @@ class LayerParser:
             
             mcp = MyConfigParser(dict_type=OrderedDict)
             mcp.read([param_cfg_path])
-            
+            params_sections = set(mcp.sections())
             for l in layers:
                 if not mcp.has_section(l['name']) and l['requiresParams']:
                     raise LayerParsingError("Layer '%s' of type '%s' requires extra parameters, but none given in file '%s'." % (l['name'], l['type'], param_cfg_path))
                 lp = layer_parsers[l['type']]().init(l)
                 lp.add_params(mcp)
-                lp.update_params(mcp)
+                if lp.dic['name'] in params_sections:
+                    lp.update_params(mcp)
                 lp.dic['conserveMem'] = model.op.get_value('conserve_mem')
         except LayerParsingError, e:
             print e

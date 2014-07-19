@@ -70,7 +70,9 @@ class TestConvNet(ConvNet):
             # if feature_name in d:
             #     self.layer_filter_size_list = layer_list[0:d[feature_name]+1]
             l = self.get_backtrack_layer_list(self.feature_idx)
-            self.layer_filter_size_list = self.get_backtrack_filter_size_list(l[:-1])
+            #self.layer_filter_size_list = self.get_backtrack_filter_size_list(l[:-1])
+            # Should include the size of this layer !!!!!
+            self.layer_filter_size_list = self.get_backtrack_filter_size_list(l)
             ### write feature here
     def get_backtrack_filter_size_list(self,l):
         res_l = []
@@ -119,7 +121,7 @@ class TestConvNet(ConvNet):
         else:
             t = np.ceil(numbatches / self.batch_size)
             ## approximate the time for change 
-            ticklocs = range(t, len(train_errors), numbatches/self.batch_size)
+            ticklocs = range(int(t), len(train_errors), int(numbatches/self.batch_size))
         epoch_label_gran = int(ceil(numepochs / 20.)) # aim for about 20 labels
         epoch_label_gran = int(ceil(float(epoch_label_gran) / 10) * 10) # but round to nearest 10
         if self.batch_size == -1:
@@ -209,6 +211,7 @@ class TestConvNet(ConvNet):
         iu.ensure_dir(self.save_feature_path)
         feature_name = self.op.get_value('save_feature_name')
         feature_dim = self.model_state['layers'][self.feature_idx]['outputs']
+        print 'Feature dim is %d' % feature_dim
         for b in range(num_batches):
             epoch, b_num, data = self.get_next_batch(train=False)
             print '   Start writing batch......\t' + str(b_num)
@@ -222,7 +225,15 @@ class TestConvNet(ConvNet):
             d['X'] = data[-1].transpose()
             d['batch_num'] = b_num
             d['Y'] = data[1]
-            d['Y_other'] = data[2:-1] if len(data) > 3 else []
+            cur_batch_indexes = self.test_data_provider.data_dic['cur_batch_indexes']
+            # d['Y_other'] = data[2:-1] if len(data) > 3 else []
+            ####### WARN BEGIN ################
+            # for human eva fake experiments
+            d['images_path'] = [self.test_data_provider.images_path[x] for x in cur_batch_indexes]
+            d['Y'] = np.concatenate(map(lambda x:self.test_data_provider.batch_meta['RelativeSkel_Y3d_mono_body_backup'][...,x].reshape((-1,1),order='F'), cur_batch_indexes),axis=1)
+            print d['Y'].shape
+            d['cur_batch_indexes'] = cur_batch_indexes
+            ####### WARN END ################
             print 'The len of data is ' + str(len(data))
             print 'The shape of X is' + str(d['X'].shape)
             print 'The shape of Y is' + str(d['Y'].shape)
@@ -297,7 +308,7 @@ class TestConvNet(ConvNet):
                 self.save_image_response(plot_data, plot_response, \
                                         'batch_' + str(b_num) + \
                                         '_feature_' + feature_name)
-            elif self.save_res_patch in set(['all','average', 'allpatchdata']):
+            elif self.save_res_patch in set(['all','average', 'allpatchdata', 'allpatchdata-feature']):
                 plot_data = self.test_data_provider.get_plottable_data(data[0])/255.0
                 s = np.sqrt(feature_dim / feature_channel)
                 plot_response = data[-1].transpose().reshape((s,s,feature_channel, num_data), order='F')
@@ -311,7 +322,7 @@ class TestConvNet(ConvNet):
                 options['num_joints'] = dp.num_joints
                 options['abs'] = True
                 options['add_background'] = True
-                options['normalize'] = 'WTA' #'sum'
+                options['normalize'] = 'max' #'sum'
                 if len(self.feature_params) > 1 and self.feature_params[1][0]=='occ':
                     print 'Using Occlusion information'
                     options['joint_occ'] = dp.data_dic['occ_body']
@@ -489,17 +500,15 @@ class TestConvNet(ConvNet):
 
     def calc_activation_joint_histogram(self, joint_indicator_map, activations, options):
         import dhmlpe_analysis as da
-        name = 'action_joint_hist'
-        if not name in self.statistics:
-            self.statistics[name] = da.calc_activation_joint_histogram(joint_indicator_map, \
-                                                                       activations, \
-                                                                       options)
-        else:
-            self.statistics[name] += da.calc_activation_joint_histogram(joint_indicator_map, \
-                                                                       activations, \
-                                                                       options)
-        ## save statistics every time: it is cheap
-        print self.statistics[name][:,0].T
+        res_l = da.calc_activation_joint_histogram(joint_indicator_map, \
+                                                    activations, \
+                                                    options)
+        for name in res_l:
+            if not name in self.statistics:
+                self.statistics[name] = res_l[name]
+            else:
+                self.statistics[name] += res_l[name]
+            print self.statistics[name][:,0].T
         pickle(iu.fullfile(self.save_feature_path, 'hist_statistics'), self.statistics)
     def save_image_res_patch(self,imgdata,resdata, prename, reorder_channel=True):
         import scipy.io as sio
@@ -531,9 +540,13 @@ class TestConvNet(ConvNet):
         patches = np.zeros( imgdata[...,0].shape )
         clist = range(sp[2])
         saveimgall = True if self.save_res_patch =='all' else False
-        savepatchall = True if self.save_res_patch=='allpatchdata' else False
+        savepatchall = True if self.save_res_patch in ['allpatchdata', 'allpatchdata-feature'] else False
+        savepatch_feature_all = True if self.save_res_patch == 'allpatchdata-feature' else False
         if savepatchall:
             allpatches = np.zeros((box[2]-box[0]+1,box[3]-box[1]+1, tc, sp[2], sp[3]),dtype=np.float32)
+        if savepatch_feature_all:
+            # The feature for patch at k-th channel, n-th data is allfeatures[:,k,n]
+            allfeatures = np.zeros((sp[2], sp[2], sp[3]), dtype=np.float32)
         if reorder_channel is True and sp[2] == 16:
             if  self.op.get_value('analyze_feature_name') == 'conv3': 
                 clist = [ 9, 2, 8,12,4, 7, 0, 3,\
@@ -557,6 +570,7 @@ class TestConvNet(ConvNet):
                          21, 3, 24, 17, 20, 27, 18,\
                           6, 10, 5, 11, 30, 7, 16, \
                           28, 23, 12, 14] # for network 26
+        # The dimension in sp is nrow, ncol, nchannel, ndata
         for i in range(sp[3]):
             sumpatches[:] = 0
             indpatches[:] = False
@@ -565,6 +579,8 @@ class TestConvNet(ConvNet):
                 channel = clist[cidx]
                 #patches[:] = 0
                 index = am[channel, i]
+                if savepatch_feature_all:
+                    allfeatures[:,channel,i] = resdata[index,:,i]
                 c = index / sp[0]
                 r = index - c * sp[0]
                 bbox = list(iu.back_track_filter_range(layer_list, (r,c,r,c)))
@@ -609,6 +625,10 @@ class TestConvNet(ConvNet):
                 for i in range(allpatches.shape[-2]):
                     pickle(iu.fullfile(self.save_feature_path, 'patch_data_map_%d' % i), allpatches[:,:,:,i,:])
                     sio.savemat(iu.fullfile(self.save_feature_path, 'patch_data_map_%d' % i), {'data':allpatches[:,:,:,i,:]})
+        if savepatch_feature_all:
+            for i in range(sp[2]):
+                    pickle(iu.fullfile(self.save_feature_path, 'patch_feature_map_%d' % i), allfeatures[:,i,:])
+                    sio.savemat(iu.fullfile(self.save_feature_path, 'patch_feature_map_%d' % i), {'feature':allfeatures[:,i,:]})
         self.Show_multi_channel_image(avgpatches, True, avgc)
         plt.savefig(iu.fullfile(self.save_feature_path, prename + '_all_filter_avg_imgeq.png'))
         # self.Show_multi_channel_image(avgpatches, False, avgc)
@@ -1092,20 +1112,42 @@ class TestConvNet(ConvNet):
         gt = gt.reshape((-1, num_joints, ndata),order='F')
         print est[:,[0,1,2],0]
         print gt[:,[0,1,2],0]
-        return [np.sum(np.sqrt(np.sum((est - gt) ** 2,axis=0)).flatten())/num_joints, ndata]        
+        return [np.sum(np.sqrt(np.sum((est - gt) ** 2,axis=0)).flatten())/num_joints, ndata]
+    def calc_MPJPE_raw(self, est, gt, num_joints, is_relskel=False):
+        """
+        est, gt will be dim X ndata matrix
+        dim will be dim_data (2 or 3) x num_joints
+        """
+        ndata = gt.shape[-1]
+        est = est.reshape((-1, num_joints, ndata),order='F')
+        gt = gt.reshape((-1, num_joints, ndata),order='F')
+        print est[:,[0,1,2],0]
+        print gt[:,[0,1,2],0]
+        res = np.sum(np.sqrt(np.sum((est - gt) ** 2,axis=0)),axis=0)/num_joints
+        print res.size, ndata
+        return res.tolist()
     def evaluate_output(self):
         import scipy.io as sio
-        next_data = self.get_next_batch(train=False)[2]
+        next_data=self.get_next_batch(train=False)[2]
         test_outputs = []
         num_cases = []
-        output_layer_idx = self.get_layer_idx(self.op.get_value('do_evaluation'))
+        params = self.parse_params(self.op.get_value('do_evaluation'))
+        output_layer_idx = self.get_layer_idx(params[0])
+        if len(params) == 1:
+            target_type = 'h36m_body'
+            gt_idx = 1
+        else:
+            target_type = params[1]
+            gt_idx = int(params[2])
         data_dim = self.model_state['layers'][output_layer_idx]['outputs']
         test_outputs= []
         tosave_pred = []
         tosave_indexes = []
-        is_relskel = (self.test_data_provider.feature_name_3d == 'RelativeSkel_Y3d_mono_body')
+        MPJPE_list = []
+        is_relskel = (self.test_data_provider.feature_name_3d == 'RelativeSkel_Y3d_mono_body') 
         print 'I am using %s' % ('RelSkel' if is_relskel else 'Rel')
-        
+        convert_dic = {'h36m_body':self.convert_relskel2rel, \
+                       'humaneva_body':self.convert_relskel2rel_eva}
         while True:
             data = next_data
             num_cases += [data[0].shape[-1]]
@@ -1120,13 +1162,17 @@ class TestConvNet(ConvNet):
             if load_next:
                 next_data = self.get_next_batch(train=False)[2]
             self.finish_batch()
-            if is_relskel:
-                est = self.convert_relskel2rel(buf.T)
-                gt = self.convert_relskel2rel(data[1])
+            if is_relskel and target_type in convert_dic:
+                est = convert_dic[target_type](buf.T)
+                gt =  convert_dic[target_type](data[gt_idx])
             else:
                 est = buf.T
-                gt = data[1]
-            test_outputs += [self.calc_MPJPE(est, gt, self.test_data_provider.num_joints)]
+                gt = data[gt_idx]
+            if target_type in ['h36m_body', 'humaneva_body']:
+                test_outputs += [self.calc_MPJPE(est, gt, self.test_data_provider.num_joints)]
+                MPJPE_list += self.calc_MPJPE_raw(est, gt, self.test_data_provider.num_joints)
+            elif target_type == 'h36m_body_len':
+                test_outputs += [self.calc_MPJPE(est, gt, self.test_data_provider.num_joints-1)]               
             print test_outputs[-1]
             if self.save_evaluation:
                 tosave_pred += [est]
@@ -1142,6 +1188,8 @@ class TestConvNet(ConvNet):
         max_depth = self.test_data_provider.max_depth
         print 'max_depth = %6f' % max_depth
         print 'MPJPE is %.6f, a, b = %.6f, %.6f' % ((a/b) * max_depth, a,b)
+        arr = np.asarray(MPJPE_list).flatten()*max_depth
+        print 'MPJPE is %.6f, std =%.6f ' % (np.mean(arr), np.std(arr))
         if self.save_evaluation:
             saved = dict()
             saved['prediction'] = np.concatenate(tosave_pred, axis=-1) * self.test_data_provider.max_depth;
@@ -1196,6 +1244,10 @@ class TestConvNet(ConvNet):
     def convert_relskel2rel(cls, x):
         import dhmlpe_features as df
         return df.convert_relskel2rel(x)
+    def convert_relskel2rel_eva(cls,x):
+        import dhmlpe_features as df
+        import humaneva_meta as hm
+        return df.convert_relskel2rel_base(x, hm.limbconnection)
     @classmethod
     def get_options_parser(cls):
         op = ConvNet.get_options_parser()

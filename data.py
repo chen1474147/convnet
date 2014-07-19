@@ -52,7 +52,6 @@ class DataProvider:
             self.data_dic = self.get_batch(self.curr_batchnum)
         epoch, batchnum = self.curr_epoch, self.curr_batchnum
         self.advance_batch()
-
         return epoch, batchnum, self.data_dic
     
     def __add_subbatch(self, batch_num, sub_batchnum, batch_dic):

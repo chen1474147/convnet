@@ -246,6 +246,7 @@ class ConvNet(IGPUModel):
         DataProvider.register_data_provider('croppeddhmlpejtocc', 'CROPPEDDHMLPEJOINTOCCDATAPROVIDER', CroppedDHMLPEJointOccDataProvider)
         DataProvider.register_data_provider('croppeddhmlpedepthjt', 'CROPPEDDHMLPEDEPTHJOINTDATAPROVIDER', CroppedDHMLPEDepthJointDataProvider)
         DataProvider.register_data_provider('croppeddhmlperelskeljt', 'CROPPEDDHMLPERELSKELJOINTDATAPROVIDER', CroppedDHMLPERelSkelJointDataProvider)
+        DataProvider.register_data_provider('croppeddhmlperelskeljtlen', 'CROPPEDDHMLPERELSKELJOINTLENDATAPROVIDER', CroppedDHMLPERelSkelJointLenDataProvider)
         return op
     
 if __name__ == "__main__":
