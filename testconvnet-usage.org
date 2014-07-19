@@ -1,0 +1,73 @@
+* command
+** --show-estimation=fc\_j2 [--estimation-type=AHEBuffy]
+*** --save-images
+*** --save-estimation 
+** --show-cost=, --cost-idx=
+** --analyze-feature-name --feature-channel
+*** --save-res-patch=all/average/allpatchdata/allpatchdata-feature  --save-feature-path=
+*** --calc-hist=actjoint [--save-feature-path]=
+example
+#+BEGIN_SRC shell
+--analyze-feature-name=conv3,2 --feature-channel=64 --calc-hist=actjoint,occ@any_number
+--save-feature-path=somewhere
+#+END_SRC
+2 is the idx of indicatormap in the data list
+*** --show_response=random
+This is average response of all the filers for some random images
+*** --save-response=separate 
+Show response for each images for all the filters
+*** --save-indmap-show=all --save-feature-path [--matched-path --ind-type=]
+**** note
+matched is used for removing unmatched
+ind-type indicate whether the type of indicator map joint/part
+**** example
+#+BEGIN_SRC shell
+python testconvnet.py -f /media/SYSTEM/Storage/saved/backup/ConvNet__2013-10-22_20.42.46 --data-path=/media/DATA/pure_shuffled_batch_train_modified128 --analyze-feature-name=fc_i2 --feature-channel=7 --save-indmap-show=all --save-feature-path=/media/SYSTEM/Storage/imagedata/results/indmap_20000 --mini=32 --test-range=20000
+#+END_SRC
+
+*** --ubd-image-folder= --save-feature-path [--ubd-fix-input-var==]
+
+** --save-cost-path
+: example
+#+BEGIN_SRC shell
+python testconvnet.py -f /media/SYSTEM/Storage/saved/backup/Clusters/c8k19/ConvNet__2013-12-30_10.13.54  --save-cost-path=/media/SYSTEM/Storage/imagedata/results/track/2013-12-28/costs/cost_macid_19_type_8
+#+END_SRC
+** --save-feature-name --forward-pass-feature=1 --save-feature-path
+--forward-pass-feature=1, then just forward pass the feature
+otherwise, it will save the estimated pose in images
+
+** --do-evaluation=fc\_j2 [--evaluation-type=mpjpe] [--save-evaluation=] 
+#+BEGIN_SRC shell
+python testconvnet.py -f /opt/visal/tmp/for_sijin/Data/saved/c8k16/ConvNet__2014-06-13_12.55.33 --do-evaluation=fc_j2,humaneva_body,1 --test-one=0
+#+END_SRC
+* Note
+** reorder\_channel
+   Only meaningful for net10-22(net10-24)
+
+#+BEGIN_SRC python
+# for conv2
+     clist = [15, 2, 0, 5, 8,11, 1, 7,\
+              10,13, 4,12, 6,14, 9, 3] 
+# for conv3
+     clist = [ 9, 2, 8,12,4, 7, 0, 3,\
+              15, 6,14, 5,1,11,10,13]
+
+#+END_SRC
+
+* Useful
+** Current Best Network
+*** /media/SYSTEM/Storage/saved/backup/ConvNet__2013-10-22_20.42.46
+--data-path=/media/DATA/valid_re_shuffled_batch_train_modified128
+--data-path=/media/DATA/pure_shuffled_batch_train_modified128
+#+BEGIN_SRC python
+layer_list = [(9,1),(3,2),(5,1),(3,2), (5,1),(3,2)]
+d = {'conv1':0, 'pool1':1, 'conv2':2,'pool2':3,'conv3':4,\
+                 'pool3':5}
+            extra_d = {'fc_i2':-1}
+#+END_SRC
+*** type4=c8k15/ConvNet__2013-12-13_20.08.29
+iteration = 407.89
+--data-path=/media/DATA/pos_neg_shuffled_train128
+*** type7=c8k16/ConvNet__2013-12-28_22.54.22
+iteration = 357.49
+--data-path=/media/DATA/pos_neg_shuffled_train128
