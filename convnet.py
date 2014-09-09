@@ -43,6 +43,7 @@ from iconvdata import *
 from convdata import *
 from noah_convdata import *
 from dhmlpe_convdata import *
+from pct_convdata import *
 from os import linesep as NL
 
 ## cluster use only
@@ -66,11 +67,11 @@ class ConvNet(IGPUModel):
         lib_name = "pyconvnet" if is_windows_machine() else "_ConvNet"
         print "========================="
         print "Importing %s C++ module" % lib_name
-        self.libmodel = __import__(lib_name) 
-        
+        self.libmodel = __import__(lib_name)
+
     def init_model_lib(self):
         self.libmodel.initModel(self.layers, self.minibatch_size, self.device_ids[0])
-        
+
     def init_model_state(self):
         ms = self.model_state
         if self.load_file:
@@ -179,7 +180,9 @@ class ConvNet(IGPUModel):
                 elif type(l['weights']) == list:
                     print ""
                     print NL.join("Layer '%s' weights[%d]: %e [%e]" % (l['name'], i, n.mean(n.abs(w)), n.mean(n.abs(wi))) for i,(w,wi) in enumerate(zip(l['weights'],l['weightsInc']))),
-                print "%sLayer '%s' biases: %e [%e]" % (NL, l['name'], n.mean(n.abs(l['biases'])), n.mean(n.abs(l['biasesInc']))),
+                if 'biases' in l:
+                    # LSJ add: Some layer doesn't have bias
+                    print "%sLayer '%s' biases: %e [%e]" % (NL, l['name'], n.mean(n.abs(l['biases'])), n.mean(n.abs(l['biasesInc']))),
         print ""
         
     def conditional_save(self):
@@ -247,6 +250,7 @@ class ConvNet(IGPUModel):
         DataProvider.register_data_provider('croppeddhmlpedepthjt', 'CROPPEDDHMLPEDEPTHJOINTDATAPROVIDER', CroppedDHMLPEDepthJointDataProvider)
         DataProvider.register_data_provider('croppeddhmlperelskeljt', 'CROPPEDDHMLPERELSKELJOINTDATAPROVIDER', CroppedDHMLPERelSkelJointDataProvider)
         DataProvider.register_data_provider('croppeddhmlperelskeljtlen', 'CROPPEDDHMLPERELSKELJOINTLENDATAPROVIDER', CroppedDHMLPERelSkelJointLenDataProvider)
+        DataProvider.register_data_provider('pct', 'PCTDATAPROVIDERERROR', PCTDataProvider) 
         return op
     
 if __name__ == "__main__":

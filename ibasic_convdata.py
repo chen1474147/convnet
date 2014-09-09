@@ -74,6 +74,51 @@ def load_cropped_images(imagepath, imgdim, cropped_mean_image, crop_dim, \
         sc = sc_list[i]
         res[...,i] += f(curimg, sr,sc,i)
     return sr_list, sc_list, res
+
+def load_cropped_images_in_memory(imagedata, imgdim, cropped_mean_image, crop_dim, \
+                                  eigvalue, eigvector, sigma=0.1, test=False):
+    dimX = crop_dim[0] * crop_dim[1] * crop_dim[2]
+    ndata = imagedata.shape[-1]
+    pb = np.sqrt(np.abs(eigvalue)).reshape((1,-1)) * eigvector
+    a =  np.dot(pb, rd.randn(3, ndata)) * sigma
+    res = np.tile(-cropped_mean_image.reshape((dimX, 1),order='F'),[1, ndata])
+    nr, nc, dummy = np.floor((np.asarray(imgdim) - np.asarray(crop_dim))/2) + 1
+    sr_list = rd.randint(nr, size=ndata) if not test else [nr-1] * ndata
+    sc_list = rd.randint(nc, size=ndata) if not test else [nc-1] * ndata
+    if not test:
+        f = lambda curimg,r,c,i: curimg[r:r+crop_dim[0],c:c+crop_dim[1],:].reshape((dimX),order='F') + np.tile(a[...,i].reshape((1,3)),[1,dimX/3]).reshape((dimX),order='F')
+    else:
+        f = lambda curimg,r,c,i: curimg[r:r+crop_dim[0],c:c+crop_dim[1],:].reshape((dimX),order='F')
+    for i in range(ndata):
+        curimg = imagedata[...,i]
+        sr = sr_list[i]
+        sc = sc_list[i]
+        res[...,i] += f(curimg, sr,sc,i)
+    return sr_list, sc_list, res
+    
+                                  
+def calc_cropped_mean_global(ori_meanimg, newdim):
+    """
+    This version is slow, it takes 0.5 seconds for one image
+    However, it seems to be okay, since it will be only called once
+    """
+    [nr, nc , nchannel] = ori_meanimg.shape
+    if nchannel != 3:
+        raise BasicDataProviderError('Only RGB IMage are supported')
+    [new_nr, new_nc, dummy] = new_dim
+    fr,fc = nr - new_nr + 1, nc - new_nc + 1
+    ind = np.tile(np.asarray(range(0,fr)).reshape((fr,1)),[1,fc]) + \
+    np.asarray(range(0,fc)).reshape((1,fc)) * nr
+    ind = ind.flatten(order='F')
+    vimg = ori_meanimg.reshape((nr*nc*nchannel),order='F')
+    new_per_channel = new_nr * new_nc
+    per_channel = nr * nc
+    element = (np.tile(np.asarray(range(0,new_nr)).reshape((new_nr,1)),[1, new_nc]) + np.asarray(range(0,new_nc)).reshape((1,new_nc)) * nr).reshape((new_per_channel,1),order='F')
+    element = np.concatenate((element, element + per_channel, element + per_channel*2),axis=0)
+    tmp = map(lambda x:np.sum(vimg[x + ind],dtype=np.float), element)
+    res_img = np.asarray(tmp).reshape((new_nr, new_nc,nchannel),order='F')
+    return res_img/(fr*fc)
+    
 class CroppedImageDataProvider(DataProvider):
     """
     
@@ -103,6 +148,7 @@ class CroppedImageDataProvider(DataProvider):
         self.image_range = np.asarray(image_range)
         self.num_image = len(image_range)
         self.batch_size = dp_params['batch_size']
+        self.keep_data_dic = False
         if self.batch_size > self.num_image or self.batch_size <= 0:
             raise BasicDataProviderError('Invaid batch_size %d (num_image=%d)' % (self.batch_size, self.num_image))
         self.num_batch = (self.num_image - 1)/ self.batch_size + 1
@@ -122,7 +168,10 @@ class CroppedImageDataProvider(DataProvider):
             self.shuffled_image_range = self.image_range
         else:
             self.shuffled_image_range = self.image_range[rd.permutation(self.num_image)]
-        self.images_path = self.batch_meta['images_path']    
+        if 'images_path' in self.batch_meta:
+            self.images_path = self.batch_meta['images_path']
+        else:
+            self.images_path = None
     def get_cropped_mean(self):
         if 'cropped_mean_image' in self.batch_meta and self.batch_meta['cropped_mean_image'].shape == tuple(self.input_image_dim):
             return self.batch_meta['cropped_mean_image']
@@ -130,27 +179,7 @@ class CroppedImageDataProvider(DataProvider):
             return self.calc_cropped_mean(self.batch_meta['mean_image'], self.input_image_dim)
     @classmethod
     def calc_cropped_mean(cls, ori_meanimg, new_dim):
-        """
-        This version is slow, it takes 0.5 seconds for one image
-        However, it seems to be okay, since it will be only called once
-        """
-        [nr, nc , nchannel] = ori_meanimg.shape
-        if nchannel != 3:
-            raise BasicDataProviderError('Only RGB IMage are supported')
-        [new_nr, new_nc, dummy] = new_dim
-        fr,fc = nr - new_nr + 1, nc - new_nc + 1
-        ind = np.tile(np.asarray(range(0,fr)).reshape((fr,1)),[1,fc]) + \
-           np.asarray(range(0,fc)).reshape((1,fc)) * nr
-        ind = ind.flatten(order='F')
-        vimg = ori_meanimg.reshape((nr*nc*nchannel),order='F')
-        new_per_channel = new_nr * new_nc
-        per_channel = nr * nc
-        element = (np.tile(np.asarray(range(0,new_nr)).reshape((new_nr,1)),[1, new_nc]) + np.asarray(range(0,new_nc)).reshape((1,new_nc)) * nr).reshape((new_per_channel,1),order='F')
-        element = np.concatenate((element, element + per_channel, element + per_channel*2),axis=0)
-        tmp = map(lambda x:np.sum(vimg[x + ind],dtype=np.float), element)
-        res_img = np.asarray(tmp).reshape((new_nr, new_nc,nchannel),order='F')
-        return res_img/(fr*fc)
-   
+        return calc_cropped_mean_global(ori_meanimg, new_dim)
     def get_next_batch(self):
         if self.data_dic is None or len(self.batch_range) > 1:
             self.data_dic = self.get_batch(self.curr_batchnum)
@@ -223,3 +252,38 @@ class CroppedImageDataProvider(DataProvider):
     @staticmethod
     def get_num_batches(srcdir):
         return -1
+
+class CroppedMemoryMetaDataProvider(CroppedImageDataProvider):
+    """
+    All the image will be saved in meta.data
+    
+    """
+    def __init__(self, data_dir, image_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):
+        CroppedImageDataProvider.__init__(self, data_dir, image_range, init_epoch, init_batchnum, dp_params, test)
+        self.read_all_data()
+    def read_all_data(self):
+        """
+        Read data from meta
+        """
+        self.data = self.batch_meta['data']
+    def get_batch(self, batch_num):
+        """
+        batch_num in self.image_range
+        """
+        dic = dict()
+        if self.test and self.shuffle_data == 0:
+            # test data doesn't need to circle 
+            end_num = min(batch_num + self.batch_size, self.num_image)
+            cur_batch_indexes = self.shuffled_image_range[batch_num:end_num]
+        else:
+            cur_batch_indexes = self.shuffled_image_range[ map(lambda x: x if x < self.num_image else x - self.num_image ,range(batch_num, batch_num + self.batch_size)) ]
+        dic['cur_batch_indexes'] = cur_batch_indexes.copy()
+        cur_images = self.data[...,cur_batch_indexes]
+        offset_r, offset_c, dic['data'] = load_cropped_images_in_memory(cur_images, self.image_dim, self.cropped_mean_image, self.input_image_dim, self.rgb_eigenvalue, self.rgb_eigenvector, 0.1, self.test)
+        self.cur_offset_r = offset_r
+        self.cur_offset_c = offset_c
+        if np.any(np.isnan(dic['data'])):
+            print dic['data'].shape
+            print dic['data'][:4,0]
+            print 'Has nan'
+        return dic

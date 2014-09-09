@@ -198,6 +198,8 @@ class TestConvNet(ConvNet):
     def save_feature(self):
         """
         Currently, only one layer can be saved
+        This function is designed for writing features for pose data
+        
         """
         import scipy.io as sio
         testdp = self.test_data_provider
@@ -230,7 +232,7 @@ class TestConvNet(ConvNet):
             ####### WARN BEGIN ################
             # for human eva fake experiments
             d['images_path'] = [self.test_data_provider.images_path[x] for x in cur_batch_indexes]
-            d['Y'] = np.concatenate(map(lambda x:self.test_data_provider.batch_meta['RelativeSkel_Y3d_mono_body_backup'][...,x].reshape((-1,1),order='F'), cur_batch_indexes),axis=1)
+            # d['Y'] = np.concatenate(map(lambda x:self.test_data_provider.batch_meta['RelativeSkel_Y3d_mono_body_backup'][...,x].reshape((-1,1),order='F'), cur_batch_indexes),axis=1)
             print d['Y'].shape
             d['cur_batch_indexes'] = cur_batch_indexes
             ####### WARN END ################
@@ -799,8 +801,6 @@ class TestConvNet(ConvNet):
                 #curimg = imgdata[...,i].reshape((s,s))
                 # pl.imshow(curimg, cmap = cm.Greys_r)
                 pl.imshow(curimg)
-                
-               
         plt.show()
     def save_AHEBuffy_estimation(self,data_dic, est_pose, matched, save_folder):
         """
@@ -1126,6 +1126,12 @@ class TestConvNet(ConvNet):
         res = np.sum(np.sqrt(np.sum((est - gt) ** 2,axis=0)),axis=0)/num_joints
         print res.size, ndata
         return res.tolist()
+    def calc_absdiff_count(self, est, gt):
+        ndata = est.shape[-1]
+        print est[0,0:3]
+        print gt[0,0:3]
+        e = np.sum(np.abs(est - gt).flatten())
+        return [e, ndata]
     def evaluate_output(self):
         import scipy.io as sio
         next_data=self.get_next_batch(train=False)[2]
@@ -1143,11 +1149,16 @@ class TestConvNet(ConvNet):
         test_outputs= []
         tosave_pred = []
         tosave_indexes = []
-        MPJPE_list = []
-        is_relskel = (self.test_data_provider.feature_name_3d == 'RelativeSkel_Y3d_mono_body') 
-        print 'I am using %s' % ('RelSkel' if is_relskel else 'Rel')
-        convert_dic = {'h36m_body':self.convert_relskel2rel, \
-                       'humaneva_body':self.convert_relskel2rel_eva}
+        err_list = []
+        if 'feature_name_3d' not in dir(self.test_data_provider):
+            is_relskel = False
+        else:
+            is_relskel = (self.test_data_provider.feature_name_3d == 'RelativeSkel_Y3d_mono_body')
+            print 'I am using %s' % ('RelSkel' if is_relskel else 'Rel')
+        convert_dic = {'h36m_rel':lambda x:x,\
+                       'h36m_body':self.convert_relskel2rel, \
+                       'humaneva_body':self.convert_relskel2rel_eva,
+                       'people_count':lambda X: X * self.test_data_provider.maximum_count}
         while True:
             data = next_data
             num_cases += [data[0].shape[-1]]
@@ -1162,17 +1173,20 @@ class TestConvNet(ConvNet):
             if load_next:
                 next_data = self.get_next_batch(train=False)[2]
             self.finish_batch()
-            if is_relskel and target_type in convert_dic:
+            if target_type in convert_dic:
                 est = convert_dic[target_type](buf.T)
                 gt =  convert_dic[target_type](data[gt_idx])
             else:
                 est = buf.T
                 gt = data[gt_idx]
-            if target_type in ['h36m_body', 'humaneva_body']:
+            if target_type in ['h36m_rel', 'h36m_body', 'humaneva_body']:
                 test_outputs += [self.calc_MPJPE(est, gt, self.test_data_provider.num_joints)]
-                MPJPE_list += self.calc_MPJPE_raw(est, gt, self.test_data_provider.num_joints)
+                err_list += self.calc_MPJPE_raw(est, gt, self.test_data_provider.num_joints)
             elif target_type == 'h36m_body_len':
-                test_outputs += [self.calc_MPJPE(est, gt, self.test_data_provider.num_joints-1)]               
+                test_outputs += [self.calc_MPJPE(est, gt, self.test_data_provider.num_joints-1)]
+            elif target_type == 'people_count':
+                test_outputs += [self.calc_absdiff_count(est,gt)]
+                err_list += (est - gt).flatten().tolist() 
             print test_outputs[-1]
             if self.save_evaluation:
                 tosave_pred += [est]
@@ -1185,15 +1199,26 @@ class TestConvNet(ConvNet):
         for x in test_outputs:
            a = a + x[0]
            b = b + x[1]
-        max_depth = self.test_data_provider.max_depth
-        print 'max_depth = %6f' % max_depth
-        print 'MPJPE is %.6f, a, b = %.6f, %.6f' % ((a/b) * max_depth, a,b)
-        arr = np.asarray(MPJPE_list).flatten()*max_depth
-        print 'MPJPE is %.6f, std =%.6f ' % (np.mean(arr), np.std(arr))
+        if target_type in ['h36m_rel', 'h36m_body', 'humaneva_body']:
+            max_depth = self.test_data_provider.max_depth
+            print 'max_depth = %6f' % max_depth
+            print 'MPJPE is %.6f, a, b = %.6f, %.6f' % ((a/b) * max_depth, a,b)
+            arr = np.asarray(err_list).flatten()*max_depth
+            print 'MPJPE is %.6f, std =%.6f ' % (np.mean(arr), np.std(arr))
+        elif target_type in [ 'people_count']:
+            print 'Average counting error is %.6f (%d patches)' % (a/b, b)
+            err_arr = np.abs(np.asarray(err_list))
+            print 'Average counting error is %.6f (std=%.6f)' % (np.mean(err_arr), \
+                                                                 np.std(err_arr))
         if self.save_evaluation:
             saved = dict()
-            saved['prediction'] = np.concatenate(tosave_pred, axis=-1) * self.test_data_provider.max_depth;
-            saved['images_path'] = [self.test_data_provider.images_path[x] for x in tosave_indexes]
+            if target_type in ['h36m_body', 'humaneva_body']:
+                saved['prediction'] = np.concatenate(tosave_pred, axis=-1) * self.test_data_provider.max_depth
+            else:
+                saved['prediction'] = np.concatenate(tosave_pred, axis=-1)
+            saved['indexes'] = tosave_indexes
+            if len(self.test_data_provider.images_path) != 0:
+                saved['images_path'] = [self.test_data_provider.images_path[x] for x in tosave_indexes]
             saved['oribbox'] = self.test_data_provider.batch_meta['oribbox'][...,tosave_indexes].reshape((4,-1),order='F')
             sio.savemat(self.save_evaluation, saved)
             
@@ -1209,8 +1234,6 @@ class TestConvNet(ConvNet):
                 break
             res_list = [l] + res_list
         return res_list
-
-            
     def start(self):
         self.op.print_values()
         if self.test_only:

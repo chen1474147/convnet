@@ -108,6 +108,8 @@ Layer* ConvNet::initLayer(string& layerType, PyObject* paramsDict) {
         _layers.push_back(new EltwiseMaxLayer(this, paramsDict));
     } else if (layerType == "slice") {
       _layers.push_back(new SliceLayer(this, paramsDict));
+    } else if (layerType == "concat") {
+      _layers.push_back(new ConcatenationLayer(this, paramsDict));
     } else if (layerType == "neuron") {
         _layers.push_back(new NeuronLayer(this, paramsDict));
     } else if (layerType == "nailbed") {
