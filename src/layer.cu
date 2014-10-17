@@ -1065,6 +1065,9 @@ CostLayer& CostLayer::makeCostLayer(ConvNet* convNet, string& type, PyObject* pa
       return *new EltwiseL2SVMCostLayer(convNet, paramsDict);
     } else if (type == "cost.loglikegauss") {
       return *new LoglikeGaussianCostLayer(convNet, paramsDict);
+    } else if (type == "cost.ssvm") {
+      printf("At least here i am fine\n");
+      return *new SSVMCostLayer(convNet, paramsDict);
     }
     throw string("Unknown cost layer type ") + type;
 }
@@ -1408,4 +1411,46 @@ void LoglikeGaussianCostLayer::bpropWeights(NVMatrix& v, int inpIdx, PASS_TYPE p
     printf("abs sum = %.6f\n", var_inputs.sum());
     printf("close_form_update_count = %d\n", _close_form_update_count);
   }
+}
+
+/* 
+ * =====================
+ * SSVMCostLayer
+     Calculate the following cost function
+      max_y  \delta(y,y_i) + <\Phi(x_i, y), w > - < \Phi(x_i, y_i),w>
+      
+ * =====================
+ */
+SSVMCostLayer::SSVMCostLayer(ConvNet* convNet, PyObject* paramsDict):CostLayer(convNet, paramsDict, false)  {
+   _num_groups =  pyDictGetInt(paramsDict, "groups");
+}
+SSVMCostLayer::~SSVMCostLayer() {
+  // pass
+}
+void SSVMCostLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  // calculate the cost once
+  if (inpIdx == 0) {
+    // Only pick one max at the time
+    NVMatrix& ind  = *_inputs[0];
+    NVMatrix& pred = *_inputs[1];
+    NVMatrix act;
+    int ndata = ind.getNumCols();
+    pred.copy(act);
+    act.subtract(ind);
+    _act_max_ind.resize(ind);
+    _act_max_ind.apply(NVMatrixOps::Zero());
+    _act_max_value.resize(_num_groups, ndata); 
+    int num_data = ind.getNumCols();
+    // do sth here
+    computeSSVMCost(ind, act, _act_max_ind, _act_max_value);
+    _costv.clear();
+    _costv.push_back(_act_max_value.sum()  + _num_groups * num_data);
+  }
+}
+
+void SSVMCostLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  assert(inpIdx == 1); // because the pred is the second input
+  NVMatrix& ind  = *_inputs[0];
+  _act_max_ind.subtract(ind);
+  _prev[inpIdx]->getActsGrad().add(_act_max_ind, scaleTargets, -_coeff);
 }

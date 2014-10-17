@@ -451,7 +451,17 @@ class LoglikeGaussianCostLayer : public CostLayer {
   Weights& getWeights(int idx); // Maybe someone may want to call it in the future
 };
 
-
+class SSVMCostLayer: public CostLayer {
+ protected:
+  NVMatrix _act_max_ind;
+  NVMatrix _act_max_value;
+  int _num_groups;
+  void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
+  void bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType);
+ public:
+  SSVMCostLayer(ConvNet* convNet, PyObject* paramsDict);
+  virtual ~SSVMCostLayer();  
+};
 
 #endif	/* LAYER_CUH */
 

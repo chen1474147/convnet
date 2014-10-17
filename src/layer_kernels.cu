@@ -220,6 +220,77 @@ __global__ void kEltwiseL2SVMGrad(float *ldata, float *pre_grad_data,  float* gr
 }
 
 /*
+ * The kernel is used for calclulating 
+ * the maximum value
+ * 
+ * act: \delta(y,y_i) + <\Phi(x_i, y), w > - 1 
+ *             
+ */
+__global__ void kSSVMCost(float *ind, float*act, float* act_max_ind, \
+                          float *act_max_value, int num_cases, int num_tasks, \
+                          int num_groups, int per_block_cases, int per_thread_cases) {
+  __shared__ float shmax_v[SSVM_ERR_THREADS_X];
+  __shared__ int shmax_idx[SSVM_ERR_THREADS_X];
+  __shared__ int gt_index;
+  int group_id = blockIdx.x;
+  int case_id = blockIdx.y;
+  if (case_id >= num_cases || group_id >= num_groups) {
+    assert(0);
+    return;
+  }
+  int start_tx = group_id * per_block_cases;
+  int end_tx = start_tx + per_block_cases;
+  int tid = threadIdx.x;
+  int i_start_tx = start_tx + tid * per_thread_cases;
+  int i_end_tx = min(end_tx, i_start_tx + per_thread_cases);
+
+  if (tid == 0) {
+    gt_index = start_tx;// initialization
+  }
+    
+  if (i_start_tx >= end_tx) {
+    // This threads doesn't need to do anything
+    shmax_v[tid] = 0;
+    shmax_idx[tid] = -1;
+  } else {
+    shmax_v[tid] = act[i_start_tx * num_cases  + case_id];
+    shmax_idx[tid] = i_start_tx;
+    act_max_ind[i_start_tx * num_cases  + case_id] = 0;
+    for (int i = i_start_tx + 1; i < i_end_tx; ++i) {
+      if (shmax_v[tid] < act[i * num_cases + case_id]) {
+        shmax_v[tid] = act[i * num_cases + case_id];
+        shmax_idx[tid] = i;
+      }
+      act_max_ind[i * num_cases + case_id] = 0;
+    }
+
+    for (int i = i_start_tx; i < i_end_tx; ++i) {
+      if (ind[i * num_cases + case_id] == 1) {
+        gt_index = i; // There is no need for synchronization, only one thread can enter here
+        break;
+      }
+    }
+  }
+  __syncthreads();
+  for (unsigned int s = SSVM_ERR_THREADS_X; s > 1;) {
+    unsigned int offset = s >> 1;
+    if ( tid < offset && tid + offset < per_block_cases && \
+         shmax_v[tid] < shmax_v[tid + offset]) {
+        shmax_v[tid] = shmax_v[tid + offset];
+        shmax_idx[tid] = shmax_idx[tid + offset];
+    }
+    s = offset;
+    __syncthreads();
+  }
+  __syncthreads();
+  if (tid == 0) {
+    // assign results back
+  act_max_value[ group_id * num_cases + case_id ] = shmax_v[0] - act[gt_index * num_cases + case_id];
+  act_max_ind[ shmax_idx[0] * num_cases + case_id ] = 1;
+  } 
+}
+
+/*
  * dE_dy_l: (numOut, numCases)
  * y_l:     (numOut, numCases)
  * 
@@ -486,5 +557,34 @@ void computeEltwiseL2SVMGrad(NVMatrix& labels, NVMatrix& pre_grad, NVMatrix& tar
   } else {
     kEltwiseL2SVMGrad<true><<<blocks, threads>>>(labels.getDevData(), pre_grad.getDevData(), target.getDevData(), b, coeff, numCases, numTasks, per_thread_case);
   }
+}
 
+void computeSSVMCost(NVMatrix& ind, NVMatrix& act, NVMatrix& act_max_ind,\
+                      NVMatrix& act_max_value) {
+  assert(ind.isContiguous());
+  assert(act.isContiguous());
+  assert(act_max_ind.isContiguous());
+  assert(act_max_value.isContiguous());
+  assert(!ind.isTrans());
+  assert(!act.isTrans());
+  assert(!act_max_ind.isTrans());
+  assert(!act_max_value.isTrans());
+  
+  int numCases = ind.getNumCols();
+  int numTasks = ind.getNumRows();
+  int numGroups = act_max_value.getNumRows();
+  assert(act.getNumCols() == numCases);
+  assert(act.getNumRows() == numTasks);
+  assert(act_max_ind.getNumRows() == numTasks);
+  assert(act_max_ind.getNumCols() == numCases);
+
+      
+  dim3 threads(SSVM_ERR_THREADS_X, 1);
+  dim3 blocks(numGroups, numCases);
+  int per_block_cases = numTasks / numGroups;
+  assert(per_block_cases * numGroups == numTasks);
+  int per_thread_cases = DIVUP(per_block_cases, SSVM_ERR_THREADS_X);
+  kSSVMCost<<<blocks, threads>>>(ind.getDevData(), act.getDevData(), \
+                                 act_max_ind.getDevData(), act_max_value.getDevData(), numCases, numTasks, numGroups, per_block_cases, per_thread_cases);
+  getLastCudaError("computeSSVMCost: Kernel execution failed");
 }

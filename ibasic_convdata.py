@@ -139,6 +139,18 @@ class CroppedImageDataProvider(DataProvider):
         else:
             self.input_image_dim = self.batch_meta['image_sample_dim']
         self.shuffle_data = dp_params['shuffle_data'] # determine whether to shuffle test data
+        if 'external_meta_path' in dp_params and dp_params['external_meta_path']:
+            import iread.myio as mio
+            ext_meta = mio.unpickle(dp_params['external_meta_path'])
+            print 'Print load external_meta for %s succussfully' % dp_params['external_meta_path']
+            override_dic = ['mean_image', 'cropped_mean_image', 'rgb_eigenvalue', \
+                            'rgb_eigenvector', 'RelativeSkel_Y3d_mono_body', \
+                            'Relative_Y3d_mono_body']
+            for item in override_dic:
+                if item in ext_meta:
+                    self.batch_meta[item] = ext_meta[item]
+                    print '----Load %s from ext_meta succussfully' % item
+            del ext_meta
         self.mean_image = self.batch_meta['mean_image']
         self.cropped_mean_image = self.get_cropped_mean()
 
@@ -253,6 +265,7 @@ class CroppedImageDataProvider(DataProvider):
     def get_num_batches(srcdir):
         return -1
 
+    
 class CroppedMemoryMetaDataProvider(CroppedImageDataProvider):
     """
     All the image will be saved in meta.data
@@ -287,3 +300,94 @@ class CroppedMemoryMetaDataProvider(CroppedImageDataProvider):
             print dic['data'][:4,0]
             print 'Has nan'
         return dic
+class MemoryFeatureDataProvider(DataProvider):
+    """
+    For this data provider
+    all the features will be loaded into memroy at the beginning
+    batches.meta will have two field
+      'feature_list'   : a list of feature
+      'feature_dim': The dimension of features for all the element in features  
+    """
+    def __init__(self, data_dir, feature_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):
+        DataProvider.__init__(self, data_dir, range(1), init_epoch, init_batchnum, dp_params, test)
+        self.shuffle_data = dp_params['shuffle_data'] # determine whether to shuffle test data
+        if 'external_meta_path' in dp_params and dp_params['external_meta_path']:
+            import iread.myio as mio
+            ext_meta = mio.unpickle(dp_params['external_meta_path'])
+            print 'Print load external_meta for %s succussfully' % dp_params['external_meta_path']
+            for item in ext_meta:
+                self.batch_meta[item] = ext_meta[item]
+                print '----Load %s from ext_meta succussfully' % item
+            del ext_meta
+        self.test = test
+        self.feature_range = np.asarray(feature_range)
+        self.num_feature = len(feature_range)
+        self.batch_size = dp_params['batch_size']
+        self.keep_data_dic = False
+        if self.batch_size > self.num_feature or self.batch_size <= 0:
+            raise BasicDataProviderError('Invaid batch_size %d (num_image=%d)' % (self.batch_size, self.num_feature))
+        self.num_batch = (self.num_feature - 1)/ self.batch_size + 1
+        self.batch_range = range(self.num_feature)
+        if self.curr_batchnum not in self.batch_range:
+            self.curr_batchnum = 0
+        self.curr_batchnum = min(max(self.curr_batchnum, 0), self.num_feature - 1)
+        self.batch_idx = self.curr_batchnum
+        if test and self.shuffle_data == 0:
+            # There is no need to shuffle testing data
+            self.shuffled_feature_range = self.feature_range
+        else:
+            self.shuffled_feature_range = self.feature_range[rd.permutation(self.num_feature)]
+        self.num_feature_type = len(self.batch_meta['feature_dim'])
+        self.feature_dim = self.batch_meta['feature_dim']
+    def get_batch(self, batch_num):
+        """
+        batch_num in self.feature_range
+        if condition is different from CroppedImageDataProvider
+        """
+        dic = dict()
+        if self.test:            
+            # test data doesn't need to circle 
+            end_num = min(batch_num + self.batch_size, self.num_feature)
+            cur_batch_indexes = self.shuffled_feature_range[batch_num:end_num]
+        else:
+            cur_batch_indexes = self.shuffled_feature_range[ map(lambda x: x if x < self.num_feature else x - self.num_feature ,range(batch_num, batch_num + self.batch_size)) ]
+        ## record the current batch_indexes
+        dic['cur_batch_indexes'] = cur_batch_indexes.copy()
+        return dic
+    def get_next_batch(self):
+        if self.data_dic is None or len(self.batch_range) > 1:
+            self.data_dic = self.get_batch(self.curr_batchnum)
+        epoch, batchnum = self.curr_epoch, self.curr_batchnum
+        self.advance_batch()
+        cur_ndata = len(self.data_dic['cur_batch_indexes'])        
+        alldata = [np.require(self.batch_meta['feature_list'][k][..., self.data_dic['cur_batch_indexes']].reshape((-1,cur_ndata),order='F'),dtype=np.single, requirements='C') for k in range(self.num_feature_type)]
+        return epoch, batchnum, alldata
+    def advance_batch(self):
+        self.batch_idx = self.get_next_batch_idx()
+        if self.batch_idx >= self.num_feature:
+            self.curr_epoch += 1
+            if not (self.test and (self.shuffle_data == 0)):
+                self.batch_idx -= self.num_feature
+            else:
+                self.batch_idx = 0
+        self.curr_batchnum = self.batch_idx
+    def get_next_batch_idx(self):
+        return self.batch_idx + self.batch_size
+    def get_next_batch_num(self):
+        if self.test and (self.shuffle_data == 0):
+            if self.batch_idx + self.batch_size < self.num_feature:
+                return self.batch_idx + self.batch_size
+            else:
+                return 0
+        else:
+            return (self.batch_idx + self.batch_size) % self.num_feature
+    def get_num_batches(self):
+        return -1
+    def get_data_dims(self,idx=0):
+        if idx >= self.num_feature_type or idx < 0:
+            raise BasicDataProviderError('Index should be in range[%d,%d]' % (0, self.num_feature_type))
+        else:
+            return self.feature_dim[idx]
+    @staticmethod
+    def get_num_batches(srcdir):
+        return -1

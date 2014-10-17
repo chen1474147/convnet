@@ -33,7 +33,7 @@ python testconvnet.py -f /media/SYSTEM/Storage/saved/backup/ConvNet__2013-10-22_
 python testconvnet.py -f /media/SYSTEM/Storage/saved/backup/Clusters/c8k19/ConvNet__2013-12-30_10.13.54  --save-cost-path=/media/SYSTEM/Storage/imagedata/results/track/2013-12-28/costs/cost_macid_19_type_8
 #+END_SRC
 ** --save-feature-name --forward-pass-feature=1 --save-feature-path
---forward-pass-feature=1, then just forward pass the feature
+--forward-pass-feature=1, then just forward pass the feature (joints8)
 otherwise, it will save the estimated pose in images
 
 ** --do-evaluation=fc\_j2 [--evaluation-type=mpjpe] [--save-evaluation=] 

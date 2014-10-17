@@ -45,7 +45,7 @@ from noah_convdata import *
 from dhmlpe_convdata import *
 from pct_convdata import *
 from os import linesep as NL
-
+import iconfig
 ## cluster use only
 
 #import pylab as pl
@@ -54,13 +54,7 @@ class ConvNet(IGPUModel):
     def __init__(self, op, load_dic, dp_params={}):
         filename_options = []
         dp_params['multiview_test'] = op.get_value('multiview_test')
-        dp_params['crop_border'] = op.get_value('crop_border')
-        dp_params['batch_size'] = op.get_value('batch_size')
-        dp_params['crop_one_border'] =op.get_value('crop_one_border')
-        try:
-            dp_params['shuffle_data'] = op.get_value('shuffle_data')
-        except:
-            dp_params['shuffle_data'] = 0
+        iconfig.add_dp_params(dp_params, op)
         IGPUModel.__init__(self, "ConvNet", op, load_dic, filename_options, dp_params=dp_params)
         
     def import_model(self):
@@ -71,7 +65,6 @@ class ConvNet(IGPUModel):
 
     def init_model_lib(self):
         self.libmodel.initModel(self.layers, self.minibatch_size, self.device_ids[0])
-
     def init_model_state(self):
         ms = self.model_state
         if self.load_file:
@@ -207,50 +200,23 @@ class ConvNet(IGPUModel):
         op.add_option("layer-params", "layer_params", StringOptionParser, "Layer parameter file")
         op.add_option("check-grads", "check_grads", BooleanOptionParser, "Check gradients and quit?", default=0, excuses=['data_path','save_path','train_batch_range','test_batch_range'])
         op.add_option("multiview-test", "multiview_test", BooleanOptionParser, "Cropped DP: test on multiple patches?", default=0, requires=['logreg_name'])
-        op.add_option("crop-border", "crop_border", IntegerOptionParser, "Cropped DP: crop border size", default=-1, set_once=True)
-        op.add_option("crop-one-border", "crop_one_border", IntegerOptionParser, "Cropped side: crop  size", default=-1, set_once=True)
         op.add_option("logreg-name", "logreg_name", StringOptionParser, "Cropped DP: logreg layer name (for --multiview-test)", default="")
         op.add_option("conv-to-local", "conv_to_local", ListOptionParser(StringOptionParser), "Convert given conv layers to unshared local", default=[])
         op.add_option("unshare-weights", "unshare_weights", ListOptionParser(StringOptionParser), "Unshare weight matrices in given layers", default=[])
         op.add_option("conserve-mem", "conserve_mem", BooleanOptionParser, "Conserve GPU memory (slower)?", default=0)
         ## valid for data provider loading images directly
-        op.add_option("batch-size", "batch_size", IntegerOptionParser, "Determine how many data can be loaded in a batch. Note: only valid for data providing loading images directly", default=-1) 
-        op.add_option("shuffle-data", "shuffle_data", IntegerOptionParser, "whether to shullfe the data", default=0)
         op.delete_option('max_test_err')
         op.options["max_filesize_mb"].default = 0
         op.options["testing_freq"].default = 50
         op.options["num_epochs"].default = 50000
         op.options['dp_type'].default = None
-        DataProvider.register_data_provider('pose', 'POSE', POSEDataProvider)
-        DataProvider.register_data_provider('multipose', 'MULTIPOSE', MultiPOSEDataProvider)
-        DataProvider.register_data_provider('largemultipose', 'LARGEMULTIPOSE', LargeMultiPOSEDataProvider)
-        DataProvider.register_data_provider('largejoints8', 'LARGEJOINTS8', LargeJoints8DataProvider)
+       
         DataProvider.register_data_provider('cifar', 'CIFAR', CIFARDataProvider)
         DataProvider.register_data_provider('dummy-cn-n', 'Dummy ConvNet', DummyConvNetDataProvider)
         DataProvider.register_data_provider('cifar-cropped', 'Cropped CIFAR', CroppedCIFARDataProvider)
-        DataProvider.register_data_provider('largejoints8andlabels', 'LARGEJOINTS8ANDLABELS', LargeJoints8AndLabelDataProvider)
-        DataProvider.register_data_provider('largejoints8andlabelsall', 'LARGEJOINTS8ANDLABELSALL', LargeJoints8AndLabelAllDataProvider)
-        DataProvider.register_data_provider('largejoints8andindicatorall', 'LARGEJOINTS8ANDINDICATORALL', LargeJoints8AndIndicatorAllDataProvider)
-        DataProvider.register_data_provider('largejoints8andindicatorfeatureall', 'LARGEJOINTS8ANDINDICATORFEATUREALL', LargeJoints8AndIndicatorFeatureAllDataProvider)
-        DataProvider.register_data_provider('largejoints8andindicatormaskall', 'LARGEJOINTS8ANDINDICATORMASKALLDATAPROVIDER', LargeJoints8AndIndicatorMaskAllDataProvider)
-        DataProvider.register_data_provider('largejtindlack_rua', 'LARGEJTINDLACK_RUA_DATAPROVIDER', LargeJtIndLack_RUA_DataProvider)
-        DataProvider.register_data_provider('largejtindlack_rla', 'LARGEJTINDLACK_RLA_DATAPROVIDER', LargeJtIndLack_RLA_DataProvider)
-        DataProvider.register_data_provider('largejtindlack_lua', 'LARGEJTINDLACK_LUA_DATAPROVIDER', LargeJtIndLack_LUA_DataProvider)
-        DataProvider.register_data_provider('largejtindlack_lla', 'LARGEJTINDLACK_LLA_DATAPROVIDER', LargeJtIndLack_LLA_DataProvider)
-        DataProvider.register_data_provider('largejtindlack_ua', 'LARGEJTINDLACK_UA_DATAPROVIDER', LargeJtIndLack_UA_DataProvider)
-        DataProvider.register_data_provider('largejtindlack_la', 'LARGEJTINDLACK_LA_DATAPROVIDER', LargeJtIndLack_LA_DataProvider)
-        DataProvider.register_data_provider('largejtindlack_head', 'LARGEJTINDLACK_HEAD_DATAPROVIDER', LargeJtIndLack_HEAD_DataProvider)
-        DataProvider.register_data_provider('largejtindlack_shoulder', 'LARGEJTINDLACK_SHOULDER_DATAPROVIDER', LargeJtIndLack_SHOULDER_DataProvider)
-        DataProvider.register_data_provider('largejtind2', 'LARGEJTIND2_DATAPROVIDER', LargeJtInd2_DataProvider)
-        DataProvider.register_data_provider('largejtind2mask', 'LARGEJTIND2MASK_DATAPROVIDER', LargeJtInd2Mask_DataProvider)
-        DataProvider.register_data_provider('h36mmono', 'H36MMONODATAPROVIDER', H36MMonoDataProvider)
-        DataProvider.register_data_provider('croppedimagenet', 'CROPPEDIMAGENETDATAPROVIDER', CroppedImageNetDataProvider)
-        DataProvider.register_data_provider('croppeddhmlpejt', 'CROPPEDDHMLPEJOINTDATAPROVIDER', CroppedDHMLPEJointDataProvider)
-        DataProvider.register_data_provider('croppeddhmlpejtocc', 'CROPPEDDHMLPEJOINTOCCDATAPROVIDER', CroppedDHMLPEJointOccDataProvider)
-        DataProvider.register_data_provider('croppeddhmlpedepthjt', 'CROPPEDDHMLPEDEPTHJOINTDATAPROVIDER', CroppedDHMLPEDepthJointDataProvider)
-        DataProvider.register_data_provider('croppeddhmlperelskeljt', 'CROPPEDDHMLPERELSKELJOINTDATAPROVIDER', CroppedDHMLPERelSkelJointDataProvider)
-        DataProvider.register_data_provider('croppeddhmlperelskeljtlen', 'CROPPEDDHMLPERELSKELJOINTLENDATAPROVIDER', CroppedDHMLPERelSkelJointLenDataProvider)
-        DataProvider.register_data_provider('pct', 'PCTDATAPROVIDERERROR', PCTDataProvider) 
+
+        iconfig.add_options(op)
+        iconfig.register_data_provider(DataProvider)
         return op
     
 if __name__ == "__main__":

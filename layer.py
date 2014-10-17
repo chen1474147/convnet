@@ -1258,9 +1258,15 @@ class SSVMCostParser(CostParser):
         ## 
         ## The first input are the indicators
         ## And the second inputs are predictions
-        CostParser.__init__(self, numInputs=2)
+        CostParser.__init__(self, num_inputs=2)
     def parse(self, name, mcp, prev_layers, model):
         dic = CostParser.parse(self, name, mcp, prev_layers, model)
+        dic['groups'] = mcp.safe_get_int(name, 'groups', default=-1)
+        
+        if dic['groups'] == -1:
+            raise LayerParsingError('Missing number of groups')
+        if dic['numInputs'][0] % dic['groups'] != 0:
+            raise LayerParsingError('The nubmerInputs %d are not divisible by groups %d' % (dic['numInputs'],dic['groups']))
         if dic['numInputs'][0] != dic['numInputs'][1]:
             print str(dic['numInputs'][0]) + '!='+ str( dic['numInputs'][1])
             raise LayerParsingError("Layer '%s': dimensionality of two input must be the same" % name)
@@ -1268,11 +1274,10 @@ class SSVMCostParser(CostParser):
             raise LayerParsingError("Layer '%s': first input must be data layer" % name)
         if 'neuron' in prev_layers[dic['inputs'][1]] and prev_layers[dic['inputs'][1]]['neuron'] not in ["", "linear"] :
             raise LayerParsingError("Layer '%s': Second input can either take no neuron or linear neuron \"%s\": it should be linear mapping" % (name, prev_layers[dic['inputs'][1]]['neuron']))
-    def add_params(self, mcp):
-        # coeff can be used to control the magnitude of the output gradient
-        #
-        pass
-    
+        if dic['numInputs'][0] % dic['groups'] != 0:
+            raise LayerParsingError('The nubmerInputs %d are not divisible by groups %d' % (dic['numInputs'],dic['groups']))
+        print "Initialized SSVMCostLayer '%s', producing %dx%d %d-channel output" % (name, dic['numInputs'][0], 1, 1)
+        return dic
 # All the layer parsers
 layer_parsers = {'data': lambda : DataLayerParser(),
                  'fc': lambda : FCLayerParser(),

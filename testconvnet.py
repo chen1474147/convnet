@@ -231,7 +231,7 @@ class TestConvNet(ConvNet):
             # d['Y_other'] = data[2:-1] if len(data) > 3 else []
             ####### WARN BEGIN ################
             # for human eva fake experiments
-            d['images_path'] = [self.test_data_provider.images_path[x] for x in cur_batch_indexes]
+            # d['images_path'] = [self.test_data_provider.images_path[x] for x in cur_batch_indexes]
             # d['Y'] = np.concatenate(map(lambda x:self.test_data_provider.batch_meta['RelativeSkel_Y3d_mono_body_backup'][...,x].reshape((-1,1),order='F'), cur_batch_indexes),axis=1)
             print d['Y'].shape
             d['cur_batch_indexes'] = cur_batch_indexes
@@ -1132,6 +1132,9 @@ class TestConvNet(ConvNet):
         print gt[0,0:3]
         e = np.sum(np.abs(est - gt).flatten())
         return [e, ndata]
+    def convert_pairwise2rel_simple(self, mat):
+        import dhmlpe_features
+        return dhmlpe_features.convert_pairwise2rel_simple(mat, 3)
     def evaluate_output(self):
         import scipy.io as sio
         next_data=self.get_next_batch(train=False)[2]
@@ -1150,15 +1153,19 @@ class TestConvNet(ConvNet):
         tosave_pred = []
         tosave_indexes = []
         err_list = []
+        rel_list = ['RelativeSkel_Y3d_mono_body']
         if 'feature_name_3d' not in dir(self.test_data_provider):
             is_relskel = False
         else:
-            is_relskel = (self.test_data_provider.feature_name_3d == 'RelativeSkel_Y3d_mono_body')
-            print 'I am using %s' % ('RelSkel' if is_relskel else 'Rel')
+            is_relskel = (self.test_data_provider.feature_name_3d in rel_list)
+        print 'I am using %s' % ('RelSkel' if is_relskel else 'Rel')
         convert_dic = {'h36m_rel':lambda x:x,\
                        'h36m_body':self.convert_relskel2rel, \
                        'humaneva_body':self.convert_relskel2rel_eva,
-                       'people_count':lambda X: X * self.test_data_provider.maximum_count}
+                       'people_count':lambda X: X * self.test_data_provider.maximum_count, \
+                       'h36m_pairwise_simple': lambda X: self.convert_pairwise2rel_simple(X)}
+        if is_relskel == False and target_type in ['h36m_body']:
+            raise Exception('target|dp does''t match')
         while True:
             data = next_data
             num_cases += [data[0].shape[-1]]
@@ -1179,7 +1186,8 @@ class TestConvNet(ConvNet):
             else:
                 est = buf.T
                 gt = data[gt_idx]
-            if target_type in ['h36m_rel', 'h36m_body', 'humaneva_body']:
+            if target_type in ['h36m_rel', 'h36m_body', 'humaneva_body', \
+                               'h36m_pairwise_simple']:
                 test_outputs += [self.calc_MPJPE(est, gt, self.test_data_provider.num_joints)]
                 err_list += self.calc_MPJPE_raw(est, gt, self.test_data_provider.num_joints)
             elif target_type == 'h36m_body_len':
@@ -1199,7 +1207,7 @@ class TestConvNet(ConvNet):
         for x in test_outputs:
            a = a + x[0]
            b = b + x[1]
-        if target_type in ['h36m_rel', 'h36m_body', 'humaneva_body']:
+        if target_type in ['h36m_rel', 'h36m_body', 'humaneva_body', 'h36m_pairwise_simple']:
             max_depth = self.test_data_provider.max_depth
             print 'max_depth = %6f' % max_depth
             print 'MPJPE is %.6f, a, b = %.6f, %.6f' % ((a/b) * max_depth, a,b)
@@ -1212,7 +1220,8 @@ class TestConvNet(ConvNet):
                                                                  np.std(err_arr))
         if self.save_evaluation:
             saved = dict()
-            if target_type in ['h36m_body', 'humaneva_body']:
+            if target_type in ['h36m_body', 'humaneva_body','h36m_rel', \
+                               'h36m_pairwise_simple']:
                 saved['prediction'] = np.concatenate(tosave_pred, axis=-1) * self.test_data_provider.max_depth
             else:
                 saved['prediction'] = np.concatenate(tosave_pred, axis=-1)
@@ -1275,7 +1284,7 @@ class TestConvNet(ConvNet):
     def get_options_parser(cls):
         op = ConvNet.get_options_parser()
         for option in list(op.options):
-            if option not in ('gpu', 'load_file', 'train_batch_range', 'test_batch_range', 'data_path', 'minibatch_size', 'layer_params', 'batch_size', 'test_only', 'test_one', 'shuffle_data', 'crop_one_border'):
+            if option not in ('gpu', 'load_file', 'train_batch_range', 'test_batch_range', 'data_path', 'minibatch_size', 'layer_params', 'batch_size', 'test_only', 'test_one', 'shuffle_data', 'crop_one_border', 'external_meta_path'):
                 op.delete_option(option)
         op.add_option("analyze-output", "analyze_output", StringOptionParser, "Show specified objective function")
         op.add_option("label-idx", "label_idx", IntegerOptionParser, "The layer idx, with which the output compare") 

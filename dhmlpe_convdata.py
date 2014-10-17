@@ -26,6 +26,7 @@ from ibasic_convdata import *
 ##
 import dhmlpe
 import indicatormap
+import dhmlpe_features
 ###
 
 class DHMLPEDataProviderError(Exception):
@@ -40,10 +41,18 @@ class CroppedDHMLPEJointDataProvider(CroppedImageDataProvider):
         CroppedImageDataProvider.__init__(self, data_dir, image_range, init_epoch, init_batchnum, dp_params, test)
         jt_filter_size = self.batch_meta['joint_indicator_map']['filter_size']
         jt_stride = self.batch_meta['joint_indicator_map']['stride']
-        self.joint_indmap = indicatormap.IndicatorMap(self.input_image_dim, \
-                                                    jt_filter_size, \
-                                                    jt_stride,
-                                                    create_lookup_table=True)
+        if ('joint_indmap_type' not in dp_params):
+            ## default 
+            self.joint_indmap = indicatormap.IndicatorMap(self.input_image_dim, \
+                                                        jt_filter_size, \
+                                                        jt_stride,
+                                                        create_lookup_table=True)
+        else:
+            self.joint_indmap = indicatormap.IndMapDic[dp_params['joint_indmap_type']](\
+                                                        self.input_image_dim, \
+                                                        jt_filter_size, \
+                                                        jt_stride,
+                                                        create_lookup_table=True) 
         self.num_joints = self.batch_meta['num_joints']
         self.feature_name_3d = 'Relative_Y3d_mono_body'
         if 'max_depth' in self.batch_meta:
@@ -169,13 +178,60 @@ class CroppedDHMLPEDepthJointDataProvider(CroppedImageDataProvider):
             return self.num_joints * 3
         else:
             return iprod(self.depth_joint_indmap.mdim) * self.num_joints
-
+        
 class CroppedDHMLPERelSkelJointDataProvider(CroppedDHMLPEJointDataProvider):
     def __init__(self, data_dir, image_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):
+        """
+        This data provider use relative positions. Each element will be the relative locations w.r.t its parent node
+        """
         CroppedDHMLPEJointDataProvider.__init__(self, data_dir, image_range, init_epoch, init_batchnum, dp_params, test)
         self.feature_name_3d = 'RelativeSkel_Y3d_mono_body'
+
+class CroppedDHMLPEPairwiseRelJointDataProvider(CroppedDHMLPEJointDataProvider):
+    def __init__(self, data_dir, image_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):
+        """
+        [imgdata, pairwise_rel_data, indicatormap]
+        """
+        CroppedDHMLPEJointDataProvider.__init__(self, data_dir, image_range, init_epoch, init_batchnum, dp_params, test)
+        # self.feature_name_3d = 'Relative_Y3d_mono_body' <---This is default
+    def get_next_batch(self):
+        if self.data_dic is None or len(self.batch_range) > 1:
+            self.data_dic = self.get_batch(self.curr_batchnum)
+        epoch, batchnum = self.curr_epoch, self.curr_batchnum
+        self.advance_batch()
+        ndata = self.data_dic['data'].shape[-1]
+        alldata = [np.require(self.data_dic['data'].reshape((-1,ndata),order='F'),dtype=np.single, requirements='C')]
+        ## Add pairwise relative location  here
+        jdata = np.require(self.data_dic['joints_3d'].reshape((-1,ndata),order='F'),dtype=np.single, requirements='C')
+        alldata += [np.require(dhmlpe_features.calc_pairwise_diff(jdata, 3), dtype=np.single, requirements='C')/self.max_depth]
+        ## ADD joint indicator here
+        alldata += [np.require(self.data_dic['joints_indicator_map'].reshape((-1,ndata),order='F'),dtype=np.single, requirements='C')]
+        return epoch, batchnum, alldata
+    def get_data_dims(self,idx=0):
+        if idx == 0:
+            return iprod(self.input_image_dim)
+        elif idx == 1:
+            return self.num_joints * self.num_joints*3
+        else:
+            return iprod(self.joint_indmap.mdim) * self.num_joints
+                
+class CroppedDHMLPEJointMaxIndDataProvider(CroppedDHMLPEJointDataProvider):
+    def __init__(self, data_dir, image_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):
+        dp_params['joint_indmap_type'] = 'maxindmap'
+        CroppedDHMLPEJointDataProvider.__init__(self, data_dir, image_range, init_epoch, init_batchnum, dp_params, test)
+        
+class CroppedDHMLPERelSkelJointMaxIndDataProvider(CroppedDHMLPEJointDataProvider):
+    def __init__(self, data_dir, image_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):
+        dp_params['joint_indmap_type'] = 'maxindmap'
+        CroppedDHMLPEJointDataProvider.__init__(self, data_dir, image_range, init_epoch, init_batchnum, dp_params, test)
+        self.feature_name_3d = 'RelativeSkel_Y3d_mono_body'
+
 class CroppedDHMLPERelSkelJointLenDataProvider(CroppedDHMLPERelSkelJointDataProvider):
     def __init__(self, data_dir, image_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):
+        """
+        This data provider will send the length of lim for prediction
+        alldata = [imgdata, joint_relskel_3d, indcatormap, lim_length] 
+        """
         CroppedDHMLPERelSkelJointDataProvider.__init__(self, data_dir, image_range, init_epoch, init_batchnum, dp_params, test)    
     def get_next_batch(self):
         epoch, batchnum, alldata = CroppedDHMLPEJointDataProvider.get_next_batch(self)
@@ -196,3 +252,45 @@ class CroppedDHMLPERelSkelJointLenDataProvider(CroppedDHMLPERelSkelJointDataProv
             return iprod(self.joint_indmap.mdim) * self.num_joints
         else:
             return self.num_joints - 1
+
+class JointDataProvider(CroppedImageDataProvider):
+    def __init__(self, data_dir, image_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):
+        """
+        This data provider will only provide joint data.
+        """
+        CroppedImageDataProvider.__init__(self, data_dir, image_range, init_epoch, init_batchnum, dp_params, test)
+        self.feature_name_3d = 'Relative_Y3d_mono_body'
+        self.num_joints = self.batch_meta['num_joints']
+        self.max_depth = self.batch_meta['max_depth'] 
+    def get_next_batch(self):
+        if self.data_dic is None or len(self.batch_range) > 1:
+            self.data_dic = self.get_batch(self.curr_batchnum)
+        epoch, batchnum = self.curr_epoch, self.curr_batchnum
+        self.advance_batch()
+        ndata = self.data_dic['joints_3d'].shape[-1]
+        alldata = [np.require(self.data_dic['joints_3d'].reshape((-1,ndata),order='F')/self.max_depth,dtype=np.single, requirements='C')]
+        return epoch, batchnum, alldata
+    def get_batch(self, batch_num):
+        """
+        batch_num in self.image_range
+        """
+        dic = dict()
+        if self.test and self.shuffle_data == 0:
+            # test data doesn't need to circle 
+            end_num = min(batch_num + self.batch_size, self.num_image)
+            cur_batch_indexes = self.shuffled_image_range[batch_num:end_num]
+        else:
+            cur_batch_indexes = self.shuffled_image_range[ map(lambda x: x if x < self.num_image else x - self.num_image ,range(batch_num, batch_num + self.batch_size)) ]
+        ## record the current batch_indexes
+        dic['cur_batch_indexes'] = cur_batch_indexes.copy()
+        dic['joints_3d'] = np.concatenate(map(lambda x:self.batch_meta[self.feature_name_3d][...,x].reshape((-1,1),order='F'),dic['cur_batch_indexes']),axis=1)
+        return dic
+    def get_data_dims(self,idx=0):
+        if idx == 0:
+            return self.num_joints * 3
+        
+class RelSkelJointDataProvider(JointDataProvider):
+    def __init__(self, data_dir, image_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):
+        JointDataProvider.__init__(self, data_dir, image_range, init_epoch, init_batchnum, dp_params, test)
+        self.feature_name_3d = 'Relative_Y3d_mono_body'
+    
