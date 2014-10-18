@@ -764,6 +764,56 @@ void EltwiseMaxLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PAS
     computeEltwiseMaxGrad(v, *_inputs[inpIdx], getActs(), _prev[inpIdx]->getActsGrad(), scaleTargets != 0);
 }
 
+
+/* 
+ * =======================
+ * ForwardLayer
+ * =======================
+ */
+ForwardLayer::ForwardLayer(ConvNet* convNet, PyObject* paramsDict) : Layer(convNet, paramsDict, false) {
+  _random_type = pyDictGetString(paramsDict, "randomtype");
+  _pass_gradients = pyDictGetInt(paramsDict, "passgradients");
+  if (_pass_gradients != 0) {
+    _pass_gradients= 1;
+  }
+  _add_noise = false;
+  if (_random_type == "gauss") {
+    float mean = pyDictGetFloat(paramsDict, "mean");
+    float sigma = pyDictGetFloat(paramsDict, "sigma");
+    _params.push_back(mean);
+    _params.push_back(sigma);
+    _add_noise = true;
+  } else {
+    assert(_random_type == "none");
+  }
+}
+
+void ForwardLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  assert(inpIdx==0);
+  _inputs[inpIdx]->copy(getActs());
+  // only process gaussian noise now
+  if (_random_type == "gauss") {
+    getActs().addGaussianNoise(_params[1]);
+    if (_params[0] != 0) {
+      getActs().addScalar(_params[0]);
+    }
+  }
+}
+
+void ForwardLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  _prev[inpIdx]->getActsGrad().add(v, scaleTargets, _pass_gradients);
+}
+
+void ForwardLayer::set_params(const float* params, int len) {
+  _params.clear();
+  for (int i = 0; i < len; ++i) {
+    _params.push_back(params[i]);
+  }
+}
+
+
+
+
 /* 
  * =======================
  * DataLayer
@@ -1066,8 +1116,9 @@ CostLayer& CostLayer::makeCostLayer(ConvNet* convNet, string& type, PyObject* pa
     } else if (type == "cost.loglikegauss") {
       return *new LoglikeGaussianCostLayer(convNet, paramsDict);
     } else if (type == "cost.ssvm") {
-      printf("At least here i am fine\n");
       return *new SSVMCostLayer(convNet, paramsDict);
+    } else if (type == "cost.logistic") {
+      return *new LogisticCostLayer(convNet, paramsDict);
     }
     throw string("Unknown cost layer type ") + type;
 }
@@ -1453,4 +1504,51 @@ void SSVMCostLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_
   NVMatrix& ind  = *_inputs[0];
   _act_max_ind.subtract(ind);
   _prev[inpIdx]->getActsGrad().add(_act_max_ind, scaleTargets, -_coeff);
+}
+
+
+/* 
+ * =====================
+ * LogisticCostLayer
+     Calculate the following cost function
+      log ( 1 + e^(ax) )/a
+ * =====================
+ */
+
+LogisticCostLayer::LogisticCostLayer(ConvNet* convNet, PyObject* paramsDict):CostLayer(convNet, paramsDict, false)  {
+  _a = pyDictGetFloat(paramsDict, "a");
+  _u = pyDictGetFloat(paramsDict, "u");
+  _neuron = new SoftReluNeuron();
+}
+LogisticCostLayer::~LogisticCostLayer() {
+  // pass
+}
+
+// Acts will store g = log ( 1 + e^(a(x-u)))
+//
+void LogisticCostLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  assert(inpIdx == 0);
+  if (_u == 0 && _a == 1) {
+    _neuron->activate( *_inputs[0], getActs());
+  } else {
+    NVMatrix transformed_input;
+    _inputs[0]->copy(transformed_input);
+    if (_u != 0) {
+      transformed_input.addScalar(-_u);
+    }
+    if (_a != 1) {
+      transformed_input.scale(_a);
+    }
+    // I am sure softRelu will neverl use input
+    _neuron->activate(transformed_input, getActs());
+  }
+  _costv.clear();
+  _costv.push_back(getActs().sum()/_a);
+}
+
+void LogisticCostLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
+    assert(inpIdx == 0);
+    v.resize(_inputs[0]->getNumRows(), _inputs[0]->getNumCols());
+    v.apply(NVMatrixOps::One());
+    _neuron->computeInputGrad(v, _prev[0]->getActsGrad(), scaleTargets > 0);
 }

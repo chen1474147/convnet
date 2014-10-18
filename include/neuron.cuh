@@ -344,8 +344,8 @@ public:
             if (unitInput > 4.0f) {
                 return unitActGrad;
             }
-            const float f = __expf(unitInput);
-            return unitActGrad * __fdividef(f, 1.0f + f); 
+            const float f = __expf(-unitInput);
+            return unitActGrad * __fdividef(f, 1.0f - f); // updated older version is wrong 
         }
     };
     

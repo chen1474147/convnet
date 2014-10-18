@@ -164,6 +164,20 @@ public:
     EltwiseSumLayer(ConvNet* convNet, PyObject* paramsDict);
 };
 
+class ForwardLayer: public Layer {
+ protected:
+  std::string _random_type;
+  vector <float> _params;
+  bool _pass_gradients;
+  bool _add_noise;
+  void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
+  void bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType);
+ public:
+  ForwardLayer(ConvNet* convNet, PyObject* paramsDict);
+  // void set_params(const vector<float> &params);
+  void set_params(const float* params, int len);
+};
+
 class EltwiseMulLayer : public Layer {
  protected:
   void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
@@ -462,6 +476,19 @@ class SSVMCostLayer: public CostLayer {
   SSVMCostLayer(ConvNet* convNet, PyObject* paramsDict);
   virtual ~SSVMCostLayer();  
 };
+
+class LogisticCostLayer: public CostLayer {
+ protected:
+  float _a, _u;
+  Neuron * _neuron;
+  void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
+  void bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType);
+ public:
+  LogisticCostLayer(ConvNet* convNet, PyObject* paramsDict);
+  virtual ~LogisticCostLayer();
+};
+
+
 
 #endif	/* LAYER_CUH */
 
