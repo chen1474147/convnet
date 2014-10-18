@@ -1549,6 +1549,7 @@ void LogisticCostLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE pass
 void LogisticCostLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
     assert(inpIdx == 0);
     v.resize(_inputs[0]->getNumRows(), _inputs[0]->getNumCols());
-    v.apply(NVMatrixOps::One());
+    v.apply(NVMatrixOps::Zero());
+    v.addScalar(-1);
     _neuron->computeInputGrad(v, _prev[0]->getActsGrad(), scaleTargets > 0);
 }
