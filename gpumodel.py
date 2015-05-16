@@ -87,7 +87,7 @@ class IGPUModel:
             
         self.import_model()
         self.init_model_lib()
-        
+
     def import_model(self):
         print "========================="
         print "Importing %s C++ module" % ('_' + self.model_name)
@@ -144,7 +144,7 @@ class IGPUModel:
             
             # load the next batch while the current one is computing
             next_data = self.get_next_batch()
-            
+            l_time = time()
             batch_output = self.finish_batch()
             self.train_outputs += [batch_output]
             self.print_train_results()
@@ -155,7 +155,7 @@ class IGPUModel:
                 self.print_test_results()
                 self.print_test_status()
                 self.conditional_save()
-            
+            print '(load_time=%.3f)' % (l_time - compute_time_py)
             self.print_train_time(time() - compute_time_py)
         self.cleanup()
     

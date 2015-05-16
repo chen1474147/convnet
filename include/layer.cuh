@@ -164,6 +164,51 @@ public:
     EltwiseSumLayer(ConvNet* convNet, PyObject* paramsDict);
 };
 
+class ForwardLayer: public Layer {
+ protected:
+  std::string _random_type;
+  vector <float> _params;
+  bool _pass_gradients;
+  bool _add_noise;
+  void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
+  void bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType);
+ public:
+  ForwardLayer(ConvNet* convNet, PyObject* paramsDict);
+  // void set_params(const vector<float> &params);
+  void set_params(const float* params, int len);
+};
+
+class EltwiseMulLayer : public Layer {
+ protected:
+  void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
+  void bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType); public:
+  EltwiseMulLayer(ConvNet* convNet, PyObject* paramsDict);
+};
+
+class SliceLayer : public Layer {
+ private:
+  int _startX, _endX;
+ protected:
+  void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
+  void bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType);
+ public:
+  SliceLayer(ConvNet* convnet, PyObject* paramsDict);
+  virtual ~SliceLayer();
+};
+
+class ConcatenationLayer : public Layer {
+ private:
+  int _numOutputs;
+ protected:
+    intv* _copyOffsets;
+    void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
+    void bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType);
+ public:
+    ConcatenationLayer(ConvNet* convnet, PyObject* paramsDict);
+    virtual ~ConcatenationLayer();
+};
+
+
 class EltwiseMaxLayer : public Layer {
 protected:
     void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
@@ -379,6 +424,82 @@ protected:
 public:
     SumOfSquaresCostLayer(ConvNet* convNet, PyObject* paramsDict);
 };
+
+class EltwiseLogregCostLayer : public CostLayer {
+ protected:
+  void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
+  void bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType);
+ public:
+  EltwiseLogregCostLayer(ConvNet* convNet, PyObject* paramsDict);
+};
+
+class EltwiseL2SVMCostLayer : public CostLayer {
+ protected:
+  float _a, _b;
+  void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
+  void bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType);
+ public:
+  EltwiseL2SVMCostLayer(ConvNet* convNet, PyObject* paramsDict);
+};
+
+class LoglikeGaussianCostLayer : public CostLayer {
+ protected:
+  int _close_form_freq;
+  int _close_form_update_count;
+  WeightList _weights;
+  float _wStep;
+  float _ubound;
+  float _lbound;
+  bool _use_ubound;
+  bool _use_lbound;
+  bool _use_log_weights;
+  void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
+  void bpropCommon(NVMatrix& v, PASS_TYPE passType);
+  void bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType);
+  virtual void bpropWeights(NVMatrix& v, int inpIdx, PASS_TYPE passType);
+ public:
+  LoglikeGaussianCostLayer(ConvNet* convNet, PyObject* paramsDict);
+  virtual void updateWeights();
+  virtual void copyToCPU();
+  virtual void copyToGPU();
+  Weights& getWeights(int idx); // Maybe someone may want to call it in the future
+};
+
+class SSVMCostLayer: public CostLayer {
+ protected:
+  NVMatrix _act_max_ind;
+  NVMatrix _act_max_value;
+  int _num_groups;
+  void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
+  void bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType);
+ public:
+  SSVMCostLayer(ConvNet* convNet, PyObject* paramsDict);
+  virtual ~SSVMCostLayer();  
+};
+
+class LogisticCostLayer: public CostLayer {
+ protected:
+  float _a, _u;
+  Neuron * _neuron;
+  void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
+  void bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType);
+ public:
+  LogisticCostLayer(ConvNet* convNet, PyObject* paramsDict);
+  virtual ~LogisticCostLayer();
+};
+
+
+class ConstCostLayer: public CostLayer {
+ protected:
+  void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
+  void bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType);
+ public:
+  ConstCostLayer(ConvNet* convNet, PyObject* paramsDict);
+  virtual ~ConstCostLayer();
+};
+
+
+
 
 #endif	/* LAYER_CUH */
 

@@ -1,0 +1,18 @@
+macid=19
+tid=t39
+FILE_PATH=c8k19/ConvNet__2014-02-07_16.01.10_buffy
+run_mac=c8k$(macid)
+requirements= (Machine=="$(run_mac).cs.cityu.edu.hk")
+priority    = 0
+notification= Never
+notify_user = 
+getenv      = True
+
+executable  = /usr/bin/python
+universe    = vanilla
+arguments  = convnet.py  -f /opt/visal/tmp/for_sijin/Data/saved/$(FILE_PATH) --data-path=/opt/visal/tmp/for_sijin/Data/imagedata/shuffled_buffy --layer-params=/home/grads/sijinli2/Projects/docs/convnet/layer-params-test-C-$(tid)_c2.cfg --epochs=500 --train-range=1-9 --test-range=20001
+input      = 
+output      = log/convnet_$(run_mac)_pos_$(tid)_c2_tb.output
+error       = log/convnet_$(run_mac)_pos_$(tid)_c2_tb.err
+log         = log/convnet_$(run_mac)_pos_$(tid)_c2_tb.log
+queue

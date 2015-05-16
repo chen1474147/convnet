@@ -340,12 +340,12 @@ public:
 
     class SoftReluGradientOperator {
     public:
-        __device__ inline float operator()(float unitActGrad, float unitInput) const  {
-            if (unitInput > 4.0f) {
+        __device__ inline float operator()(float unitActGrad, float unitOutput) const  {
+            if (unitOutput > 4.0f) {
                 return unitActGrad;
             }
-            const float f = __expf(unitInput);
-            return unitActGrad * __fdividef(f, 1.0f + f); 
+            const float f = __expf(-unitOutput);
+            return unitActGrad * (1.0f - f); // updated older version is wrong 
         }
     };
     

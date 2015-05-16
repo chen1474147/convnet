@@ -1,0 +1,18 @@
+macid=19
+run_mac=c8k$(macid)
+requirements= (Machine=="$(run_mac).cs.cityu.edu.hk")
+#requirements=HAS_GPU
+priority    = 0
+notification= Never
+notify_user = 
+getenv      = True
+
+executable  = /usr/bin/python
+universe    = vanilla
+arguments  =  convnet.py -f /public/sijinli2/Data/saved/c8k19/ConvNet__2013-11-26_15.33.25  --layer-params=/home/grads/sijinli2/Projects/docs/convnet/layer-params-test-C-$(macid).cfg 
+input      = 
+output      = log/convnet_c_$(run_mac).output
+error       = log/convnet_c_$(run_mac).err
+log         = log/convnet_c_$(run_mac).log
+
+queue

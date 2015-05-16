@@ -1,0 +1,18 @@
+macid=19
+tid=t43
+dpath=c8k19/ConvNet__2014-04-15_09.20.38
+run_mac=c8k$(macid)
+requirements= (Machine=="$(run_mac).cs.cityu.edu.hk")
+priority    = 0
+notification= Never
+notify_user = 
+getenv      = True
+
+executable  = /usr/bin/python
+universe    = vanilla
+arguments  = convnet.py  -f /opt/visal/tmp/for_sijin/Data/saved/$(dpath) --batch-size=-1 --epoch=400
+input      = 
+output      = /opt/visal/tmp/for_sijin/tmp/DHMLPE_log/convnet_$(run_mac)_FLIC-$(tid)_c2.output
+error       = /opt/visal/tmp/for_sijin/tmp/DHMLPE_log/convnet_$(run_mac)_FLIC-$(tid)_c2.err
+log         = /opt/visal/tmp/for_sijin/tmp/DHMLPE_log/convnet_$(run_mac)_FLIC-$(tid)_c2.log
+queue

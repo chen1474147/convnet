@@ -107,7 +107,7 @@ class ShowConvNet(ConvNet):
         
     def make_filter_fig(self, filters, filter_start, fignum, _title, num_filters, combine_chans):
         FILTERS_PER_ROW = 16
-        MAX_ROWS = 16
+        MAX_ROWS = 32
         MAX_FILTERS = FILTERS_PER_ROW * MAX_ROWS
         num_colors = filters.shape[0]
         f_per_row = int(ceil(FILTERS_PER_ROW / float(1 if combine_chans else num_colors)))
@@ -274,7 +274,7 @@ class ShowConvNet(ConvNet):
     def get_options_parser(cls):
         op = ConvNet.get_options_parser()
         for option in list(op.options):
-            if option not in ('gpu', 'load_file', 'train_batch_range', 'test_batch_range'):
+            if option not in ('gpu', 'load_file', 'train_batch_range', 'test_batch_range', 'batch_size'):
                 op.delete_option(option)
         op.add_option("show-cost", "show_cost", StringOptionParser, "Show specified objective function", default="")
         op.add_option("show-filters", "show_filters", StringOptionParser, "Show learned filters in specified layer", default="")

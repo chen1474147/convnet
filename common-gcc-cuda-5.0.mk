@@ -51,7 +51,7 @@ ROOTBINDIR ?= bin
 BINDIR     ?= $(ROOTBINDIR)/$(OSLOWER)
 ROOTOBJDIR ?= obj
 LIBDIR     := $(ROOTDIR)/lib
-COMMONDIR  := $(ROOTDIR)/samples/common
+COMMONDIR  := $(ROOTDIR)/common
 SHAREDDIR  := $(ROOTDIR)
 
 # Compilers

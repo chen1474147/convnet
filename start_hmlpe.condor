@@ -1,0 +1,20 @@
+macid=19
+JT=t44
+EP=200
+dpath=shuffled_flic_alone
+run_mac=c8k$(macid)
+requirements= (Machine=="$(run_mac).cs.cityu.edu.hk")
+priority    = 0
+notification= Never
+notify_user = 
+getenv      = True
+
+executable  = /usr/bin/python
+universe    = vanilla
+arguments  =  convnet.py --crop-border=0 --data-path=/opt/visal/tmp/for_sijin/Data/imagedata/$(dpath) --save-path=/opt/visal/tmp/for_sijin/Data/saved/$(run_mac) --train-range=1-32 --test-range=30001 --layer-def=/home/grads/sijinli2/Projects/docs/convnet/layer-test-C-$(JT).cfg --layer-params=/home/grads/sijinli2/Projects/docs/convnet/layer-params-test-C-$(JT).cfg --data-provider=largejtind2mask --test-freq=15 --epochs=$(EP) --mini=256
+input      = 
+output      = /opt/visal/tmp/for_sijin/tmp/DHMLPE_log/convnet_$(run_mac)_FLIC-$(JT).output
+error       = /opt/visal/tmp/for_sijin/tmp/DHMLPE_log/convnet_$(run_mac)_FLIC-$(JT).err
+log         = /opt/visal/tmp/for_sijin/tmp/DHMLPE_log/convnet_$(run_mac)_FLIC-$(JT).log
+
+queue 

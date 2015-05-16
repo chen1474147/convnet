@@ -18,15 +18,16 @@ export CUDA_INSTALL_PATH=/usr/local/cuda
 
 # CUDA SDK installation directory.
 #export CUDA_SDK_PATH=/home/spoon/NVIDIA_GPU_Computing_SDK
-export CUDA_SDK_PATH=/usr/local/cuda
+export CUDA_SDK_PATH=/opt/visal/tmp/for_sijin/local/cudat6.5-Samples
 # Python include directory. This should contain the file Python.h, among others.
-export PYTHON_INCLUDE_PATH=/usr/include/python2.7
+export PYTHON_INCLUDE_PATH=/usr/include/python2.6
 
 # Numpy include directory. This should contain the file arrayobject.h, among others.
 #export NUMPY_INCLUDE_PATH=/usr/lib/pymodules/python2.7/numpy/core/include/numpy
-export NUMPY_INCLUDE_PATH=/usr/lib/python2.7/dist-packages/numpy/core/include/numpy
+export NUMPY_INCLUDE_PATH=/usr/lib/python2.6/site-packages/numpy-1.8.0-py2.6-linux-x86_64.egg/numpy/core/include/numpy
+# export NUMPY_INCLUDE_PATH=/opt/visal/tmp/for_sijin/local/numpy/numpy/core/include/numpy/
 # ATLAS library directory. This should contain the file libcblas.so, among others.
-export ATLAS_LIB_PATH=/usr/lib/atlas-base 
+export ATLAS_LIB_PATH=/usr/lib64/atlas/ 
 
 make $*
 

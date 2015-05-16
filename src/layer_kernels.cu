@@ -23,7 +23,9 @@
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
+/*
+  Modified by Li Sijin, 2013  lisijin7@gmail.com
+ */
 #include <assert.h>
 
 #include <layer_kernels.cuh>
@@ -73,6 +75,76 @@ __global__ void kLogregCost(float* probs, float* labels, float* maxProbs, float*
     }
 }
 
+
+/*
+  Please don't use any special neuron (such as logistic, tanh) before this layer
+  
+  z_i is the input from the previous layer, y_i is the ground truth vectorized 1-of-K map
+  x_i = logistic(z_i)
+  what indlogpred calculate is y_i log( x_i) + (1-y_i) log(1-x_i)
+  predmap:    (numTasks, numCases)
+  indlogpred: (numTasks, numCases)
+  correctprobs:(numTasks, numCases)
+
+  each thread is responsible for per_thread_case position in one task
+  blockIdx.x determines which task(indicator) to take
+ */
+
+__global__ void kEltwiseLogregCost(float* predmap, float* indmap, float*indlogpred, float* correctprobs, int numCases, int numTasks, int per_thread_case) {
+  const int task_id = blockIdx.x;
+  const int start_tx = threadIdx.x * per_thread_case;
+  const int end_tx = min(start_tx + per_thread_case, numCases);
+  const float EPSILON=1e-20; // Minimum value allowed, avoid log( 0 ) 
+  if (task_id >= numTasks) {
+    return;
+  }
+  for (int c_id = start_tx; c_id < end_tx; ++c_id) {
+    int pos = task_id * numCases + c_id;
+    float t = __fdividef(1.0f, 1.0f + __expf(-predmap[ pos ]));
+    if (indmap[pos] == 1) {
+      t = fmaxf(t, EPSILON);
+      indlogpred[pos] = __logf(t);
+      correctprobs[pos] = t;
+    } else {
+      t = 1-t;
+      t = fmaxf(t, EPSILON);
+      indlogpred[pos] = __logf(t);
+      correctprobs[pos] = t;
+    }
+  }
+}
+
+/*
+  z_i is the input of previous layer
+  x_i = logistic(z_i)
+  Calculate the gradient of f(z_i) = y_i log x_i + (1-y_i) log(1-x_i)
+  df_dz = [yi/xi + (yi-1)/(1-xi)]*(1-xi)(xi) = [yi * (1-xi) + (yi-1)*xi] = [yi - xi]
+  predmap:       (numTasks, numCases)
+  indmap:        (numCases, numCases)
+  df_dz:    (numCases, numCases)
+
+  each thread is responsible for per_thread_case cases in one task
+  each block is responsible for one task  
+ */
+template <bool add>
+__global__ void kEltwiseLogregGrad(float * predmap, float* indmap, float* df_dz, int numCases, int numTasks, int per_thread_case, float coeff ) {
+  const int task_id = blockIdx.x;
+  const int start_tx = threadIdx.x * per_thread_case;
+  const int end_tx = min(start_tx + per_thread_case, numCases);
+  if (task_id >= numTasks) {
+    return;
+  }
+  for (int c_id = start_tx; c_id < end_tx; ++c_id) {
+    int pos = task_id * numCases + c_id;
+    float v = coeff * (indmap[pos] - __fdividef(1.0f, 1.0f + __expf(-predmap[ pos ])));   
+    if (add) {
+      df_dz[pos] += v;
+    } else {
+      df_dz[pos] = v;
+    }
+  }
+}
+
 /*
  * E = -log(y_t)
  * y_l:     (numOut, numCases)
@@ -97,6 +169,125 @@ __global__ void kLogregCostGrad(float* y_l, float* labels, float* dE_dy_l, const
             dE_dy_l[tidx] = v;
         }
     }
+}
+
+
+/*
+         coeff will only be used in gradient descent
+      all_cost =  max(_a - y * (lables - _b), 0)^2
+      pre_grad =  max(_a - y * (labels - _b), 0)
+ */
+
+__global__ void kEltwiseL2SVMCost(float* ydata, float* ldata, float* pre_grad, float* all_cost, float a, float b, int numCases, int numTasks, int per_thread_case) {
+  const int task_id = blockIdx.x;
+  const int start_tx = threadIdx.x * per_thread_case;
+  const int end_tx = min(start_tx + per_thread_case, numCases);
+  if (task_id >= numTasks) {
+    return;
+  }
+  for (int c_id = start_tx; c_id < end_tx; ++c_id) {
+    int pos = task_id * numCases + c_id;
+    float tmp = fmaxf(a - ydata[pos] * (ldata[pos] - b), 0);
+    pre_grad[pos] = tmp;
+    all_cost[pos] = tmp*tmp;
+  }
+}
+
+/*
+ *  Note: The negative of gradient for gradient descent 
+ *  pre_grad_data = max(_a - y * (labels - _b), 0)
+ *  grad = pre_grad_data * -(labels - _b) * _coeff * (-1)
+ *       = pre_grad_data *  (labels - _b) * _coeff
+ *             
+ */
+template <bool add>
+__global__ void kEltwiseL2SVMGrad(float *ldata, float *pre_grad_data,  float* grad, float b, float coeff, int numCases, int numTasks, int per_thread_case) {
+    const int task_id = blockIdx.x;
+    const int start_tx = threadIdx.x * per_thread_case;
+    const int end_tx = min(start_tx + per_thread_case, numCases);
+    if (task_id >= numTasks) {
+      return;
+    }
+    for (int c_id = start_tx; c_id < end_tx; ++c_id) {
+      int pos = task_id * numCases + c_id;
+      int v = pre_grad_data[pos] * (ldata[pos] - b) * coeff;
+      if (add) {
+        grad[pos] += v;
+      } else {
+        grad[pos] = v;
+      }
+    }  
+}
+
+/*
+ * The kernel is used for calclulating 
+ * the maximum value
+ * 
+ * act: \delta(y,y_i) + <\Phi(x_i, y), w > - 1 
+ *             
+ */
+__global__ void kSSVMCost(float *ind, float*act, float* act_max_ind, \
+                          float *act_max_value, int num_cases, int num_tasks, \
+                          int num_groups, int per_block_cases, int per_thread_cases) {
+  __shared__ float shmax_v[SSVM_ERR_THREADS_X];
+  __shared__ int shmax_idx[SSVM_ERR_THREADS_X];
+  __shared__ int gt_index;
+  int group_id = blockIdx.x;
+  int case_id = blockIdx.y;
+  if (case_id >= num_cases || group_id >= num_groups) {
+    assert(0);
+    return;
+  }
+  int start_tx = group_id * per_block_cases;
+  int end_tx = start_tx + per_block_cases;
+  int tid = threadIdx.x;
+  int i_start_tx = start_tx + tid * per_thread_cases;
+  int i_end_tx = min(end_tx, i_start_tx + per_thread_cases);
+
+  if (tid == 0) {
+    gt_index = start_tx;// initialization
+  }
+    
+  if (i_start_tx >= end_tx) {
+    // This threads doesn't need to do anything
+    shmax_v[tid] = 0;
+    shmax_idx[tid] = -1;
+  } else {
+    shmax_v[tid] = act[i_start_tx * num_cases  + case_id];
+    shmax_idx[tid] = i_start_tx;
+    act_max_ind[i_start_tx * num_cases  + case_id] = 0;
+    for (int i = i_start_tx + 1; i < i_end_tx; ++i) {
+      if (shmax_v[tid] < act[i * num_cases + case_id]) {
+        shmax_v[tid] = act[i * num_cases + case_id];
+        shmax_idx[tid] = i;
+      }
+      act_max_ind[i * num_cases + case_id] = 0;
+    }
+
+    for (int i = i_start_tx; i < i_end_tx; ++i) {
+      if (ind[i * num_cases + case_id] == 1) {
+        gt_index = i; // There is no need for synchronization, only one thread can enter here
+        break;
+      }
+    }
+  }
+  __syncthreads();
+  for (unsigned int s = SSVM_ERR_THREADS_X; s > 1;) {
+    unsigned int offset = s >> 1;
+    if ( tid < offset && tid + offset < per_block_cases && \
+         shmax_v[tid] < shmax_v[tid + offset]) {
+        shmax_v[tid] = shmax_v[tid + offset];
+        shmax_idx[tid] = shmax_idx[tid + offset];
+    }
+    s = offset;
+    __syncthreads();
+  }
+  __syncthreads();
+  if (tid == 0) {
+    // assign results back
+  act_max_value[ group_id * num_cases + case_id ] = shmax_v[0] - act[gt_index * num_cases + case_id];
+  act_max_ind[ shmax_idx[0] * num_cases + case_id ] = 1;
+  } 
 }
 
 /*
@@ -287,4 +478,113 @@ void computeLogregSoftmaxGrad(NVMatrix& labels, NVMatrix& probs, NVMatrix& targe
     }
 
     getLastCudaError("computeLogregSoftmaxGrad: Kernel execution failed");
+}
+
+
+void computeEltwiseLogregCost(NVMatrix& indmap, NVMatrix& predmap, NVMatrix & indlogpred, NVMatrix& correctprobs) {
+  int numCases = predmap.getNumCols();
+  int numTasks = predmap.getNumRows();
+  assert(indmap.getNumCols() == numCases);
+  assert(indmap.getNumRows() == numTasks);
+  assert(!indmap.isTrans());
+  assert(!predmap.isTrans());
+  assert(indmap.isContiguous());
+  assert(predmap.isContiguous());
+
+  indlogpred.resize(numTasks, numCases);
+  correctprobs.resize(numTasks, numCases);
+  dim3 threads(ELTLOGREG_ERR_THREADS_X, 1);
+  dim3 blocks(numTasks, 1); // Ensure the numTasks will not exceed GPU's capacity
+  int per_thread_case = DIVUP( numCases, ELTLOGREG_ERR_THREADS_X); 
+  cudaFuncSetCacheConfig(kEltwiseLogregCost, cudaFuncCachePreferL1);
+  kEltwiseLogregCost<<<blocks, threads>>>(predmap.getDevData(), indmap.getDevData(), indlogpred.getDevData(), correctprobs.getDevData(), numCases, numTasks, per_thread_case);
+  getLastCudaError("computeEltwiseLogregCost: Kernel execution failed");
+}
+
+void computeEltwiseLogregGrad(NVMatrix& indmap, NVMatrix& predmap, NVMatrix& target, bool add, float coeff) {
+  int numCases = predmap.getLeadingDim();
+  int numTasks = predmap.getFollowingDim();
+  assert( indmap.getLeadingDim() == numCases);
+  assert( indmap.getFollowingDim() == numTasks);
+  assert(!indmap.isTrans());
+  assert(!predmap.isTrans());
+  assert(indmap.isContiguous());
+  assert(predmap.isContiguous());
+
+  dim3 threads(ELTLOGREG_ERR_THREADS_X, 1);
+  dim3 blocks(numTasks, 1); // Ensure the numTasks will not exceed GPU's capacity
+  int per_thread_case = DIVUP( numCases, ELTLOGREG_ERR_THREADS_X);
+  if (!add) {
+    target.resize(predmap);
+    kEltwiseLogregGrad<false><<<blocks, threads>>>(predmap.getDevData(), indmap.getDevData(), target.getDevData(), numCases, numTasks, per_thread_case, coeff);
+  } else {
+    kEltwiseLogregGrad<true><<<blocks, threads>>>(predmap.getDevData(), indmap.getDevData(), target.getDevData(), numCases, numTasks, per_thread_case, coeff);
+  }
+  getLastCudaError("computeEltwiseLogregGrad: Kernel execution failed");
+}
+
+void computeEltwiseL2SVMCost(NVMatrix& labels, NVMatrix& y, NVMatrix & pre_grad, NVMatrix& all_cost, float a,float  b) {
+  int numCases = y.getNumCols();
+  int numTasks = y.getNumRows();
+  assert(labels.getNumCols() == numCases);
+  assert(labels.getNumRows() == numTasks);
+  assert(!labels.isTrans());
+  assert(!y.isTrans());
+  assert(labels.isContiguous());
+  assert(y.isContiguous());
+
+  pre_grad.resize(numTasks, numCases);
+  all_cost.resize(numTasks, numCases);
+  dim3 threads(ELTL2SVM_ERR_THREADS_X, 1);
+  dim3 blocks(numTasks, 1); // Ensure the numTasks will not exceed GPU's capacity
+  int per_thread_case = DIVUP( numCases, ELTLOGREG_ERR_THREADS_X);
+  kEltwiseL2SVMCost<<<blocks, threads>>>(y.getDevData(), labels.getDevData(), pre_grad.getDevData(), all_cost.getDevData(), a, b, numCases, numTasks, per_thread_case);
+  getLastCudaError("computeEltwiseL2SVMCost: Kernel execution failed");
+}
+
+void computeEltwiseL2SVMGrad(NVMatrix& labels, NVMatrix& pre_grad, NVMatrix& target, bool add, float b, float coeff) {
+  int numCases = labels.getNumCols();
+  int numTasks = labels.getNumRows();
+  assert(pre_grad.getNumCols() == numCases);
+  assert(pre_grad.getNumRows() == numTasks);
+  
+  dim3 threads(ELTL2SVM_ERR_THREADS_X, 1);
+  dim3 blocks(numTasks, 1); // Ensure the numTasks will not exceed GPU's capacity
+  int per_thread_case = DIVUP( numCases, ELTLOGREG_ERR_THREADS_X);
+  if (!add) {
+    target.resize(numTasks, numCases);
+    kEltwiseL2SVMGrad<false><<<blocks, threads>>>(labels.getDevData(), pre_grad.getDevData(),target.getDevData(), b, coeff, numCases, numTasks, per_thread_case);
+  } else {
+    kEltwiseL2SVMGrad<true><<<blocks, threads>>>(labels.getDevData(), pre_grad.getDevData(), target.getDevData(), b, coeff, numCases, numTasks, per_thread_case);
+  }
+}
+
+void computeSSVMCost(NVMatrix& ind, NVMatrix& act, NVMatrix& act_max_ind,\
+                      NVMatrix& act_max_value) {
+  assert(ind.isContiguous());
+  assert(act.isContiguous());
+  assert(act_max_ind.isContiguous());
+  assert(act_max_value.isContiguous());
+  assert(!ind.isTrans());
+  assert(!act.isTrans());
+  assert(!act_max_ind.isTrans());
+  assert(!act_max_value.isTrans());
+  
+  int numCases = ind.getNumCols();
+  int numTasks = ind.getNumRows();
+  int numGroups = act_max_value.getNumRows();
+  assert(act.getNumCols() == numCases);
+  assert(act.getNumRows() == numTasks);
+  assert(act_max_ind.getNumRows() == numTasks);
+  assert(act_max_ind.getNumCols() == numCases);
+
+      
+  dim3 threads(SSVM_ERR_THREADS_X, 1);
+  dim3 blocks(numGroups, numCases);
+  int per_block_cases = numTasks / numGroups;
+  assert(per_block_cases * numGroups == numTasks);
+  int per_thread_cases = DIVUP(per_block_cases, SSVM_ERR_THREADS_X);
+  kSSVMCost<<<blocks, threads>>>(ind.getDevData(), act.getDevData(), \
+                                 act_max_ind.getDevData(), act_max_value.getDevData(), numCases, numTasks, numGroups, per_block_cases, per_thread_cases);
+  getLastCudaError("computeSSVMCost: Kernel execution failed");
 }

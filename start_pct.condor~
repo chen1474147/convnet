@@ -1,0 +1,26 @@
+exp_name=ASM_act_4_exp_5
+DP=croppeddhmlperelskeljt
+macid=19
+JT=t43
+EP=200
+BSIZE=1024
+run_mac=c8k$(macid)
+
+TrainRange=0-109423
+TestRange=109424-148731
+
+requirements= (Machine=="$(run_mac).cs.cityu.edu.hk")
+priority    = 0
+notification= Never
+notify_user = 
+getenv      = True
+
+
+executable  = /usr/bin/python
+universe    = vanilla
+arguments  =  convnet.py --data-path=/opt/visal/tmp/for_sijin/Data/H36M/H36MExp/folder_$(exp_name) --save-path=/opt/visal/tmp/for_sijin/Data/saved/$(run_mac) --train-range=$(TrainRange) --test-range=$(TestRange) --layer-def=/home/grads/sijinli2/Projects/DHMLPE/doc/netdef/dhmlpe-layer-def-$(JT).cfg --layer-params=/home/grads/sijinli2/Projects/DHMLPE/doc/netdef/dhmlpe-layer-params-$(JT).cfg --data-provider=$(DP) --test-freq=15 --epoch=$(EP) --mini=256 --batch-size=$(BSIZE)
+input      = 
+output      = /opt/visal/tmp/for_sijin/tmp/DHMLPE_log/$(exp_name)_$(run_mac)-$(JT).output
+error       = /opt/visal/tmp/for_sijin/tmp/DHMLPE_log/$(exp_name)_$(run_mac)-$(JT).err
+log         = /opt/visal/tmp/for_sijin/tmp/DHMLPE_log/$(exp_name)_$(run_mac)-$(JT).log
+queue 

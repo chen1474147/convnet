@@ -4,3 +4,6 @@ python convnet.py --data-path=/media/DATA/data/CIFAR/cifar-10-py-colmajor/ --sav
 
 
 python convnet.py --data-path=/media/DATA/data/CIFAR/cifar-10-py-colmajor/ --save-path=/media/DATA/data/CIFAR/tmp19/ --test-range=6 --train-range=1-5 --layer-def=./example-layers/layers-18pct.cfg --layer-params=./example-layers/layer-params-18pct.cfg --data-provider=cifar --test-freq=13
+
+
+python convnet.py --crop-border=0 --data-path=/public/sijinli2/Data/imagedata/valid_re_shuffled_batch_train_modified128 --save-path=/public/sijinli2/Data/saved --train-range=1-65 --test-range=10000 --layer-def=/home/grads/sijinli2/Projects/docs/convnet/layer-test-C.cfg --layer-params=/home/grads/sijinli2/Projects/docs/convnet/layer-params-test-C.cfg --data-provider=largejoints8andindicatorall --mini=256 --test-freq=15 --epochs=2000
