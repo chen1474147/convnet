@@ -1,0 +1,24 @@
+exp_name=ASM_act_4_exp_5
+macid=19
+savedfile=c8k19/ConvNet__2014-07-22_14.52.08
+JT=t37
+EP=200
+stage=1
+###########################
+run_mac=c8k$(macid)
+requirements= (Machine=="$(run_mac).cs.cityu.edu.hk")
+
+priority    = 0
+notification= Never
+notify_user = 
+getenv      = True
+
+executable  = /usr/bin/python
+universe    = vanilla
+arguments  =  convnet.py -f /opt/visal/tmp/for_sijin/Data/saved/$(savedfile) --layer-params=/home/grads/sijinli2/Projects/DHMLPE/doc/netdef/dhmlpe-layer-params-$(JT)_c$(stage).cfg --epoch=$(EP) 
+input      = 
+output      = /opt/visal/tmp/for_sijin/tmp/DHMLPE_log/$(exp_name)_$(run_mac)-$(JT)_c$(stage).output
+error       = /opt/visal/tmp/for_sijin/tmp/DHMLPE_log/$(exp_name)_$(run_mac)-$(JT)_c$(stage).err
+log         = /opt/visal/tmp/for_sijin/tmp/DHMLPE_log/$(exp_name)_$(run_mac)-$(JT)_c$(stage).log
+
+queue 

@@ -1,0 +1,10 @@
+JOB A job-template.condor
+JOB B job-template.condor
+VARS A EP="200"
+VARS A JT="t13"
+VARS A macid="14"
+VARS B EP="200"
+VARS B JT="t14"
+VARS B macid="14"
+PARENT A CHILD B
+

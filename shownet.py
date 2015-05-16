@@ -274,7 +274,7 @@ class ShowConvNet(ConvNet):
     def get_options_parser(cls):
         op = ConvNet.get_options_parser()
         for option in list(op.options):
-            if option not in ('gpu', 'load_file', 'train_batch_range', 'test_batch_range'):
+            if option not in ('gpu', 'load_file', 'train_batch_range', 'test_batch_range', 'batch_size'):
                 op.delete_option(option)
         op.add_option("show-cost", "show_cost", StringOptionParser, "Show specified objective function", default="")
         op.add_option("show-filters", "show_filters", StringOptionParser, "Show learned filters in specified layer", default="")

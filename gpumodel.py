@@ -87,7 +87,7 @@ class IGPUModel:
             
         self.import_model()
         self.init_model_lib()
-        
+
     def import_model(self):
         print "========================="
         print "Importing %s C++ module" % ('_' + self.model_name)

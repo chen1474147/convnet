@@ -399,6 +399,8 @@ void FCLayer::bpropWeights(NVMatrix& v, int inpIdx, PASS_TYPE passType) {
     delete &prevActs_T;
 }
 
+
+
 /* 
  * =======================
  * LocalLayer
@@ -622,6 +624,74 @@ void SoftmaxLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_T
     }
 }
 
+
+/* 
+ * =======================
+ * SliceLayer
+ * =======================
+ */
+SliceLayer::SliceLayer(ConvNet* convNet, PyObject* paramsDict) : Layer(convNet, paramsDict, false) {
+  _startX = pyDictGetInt(paramsDict, "startX");
+  _endX = pyDictGetInt(paramsDict, "endX");
+}
+
+void SliceLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  if (_outputs != NULL) {
+    delete _outputs; // 
+  }
+  assert(inpIdx == 0); // only one input can be accepted for now
+  _outputs = &(_inputs[inpIdx]->slice(_startX, _endX + 1, 0, -1));
+}
+
+SliceLayer::~SliceLayer() {
+  if (_outputs != NULL) {
+    delete _outputs;
+  }
+}
+
+void SliceLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  // previous layer must use act
+  _prev[inpIdx]->getActsGrad().resize(_prev[inpIdx]->getActs());
+  NVMatrix &sliced_actsgrads = (_prev[inpIdx]->getActsGrad()).slice(_startX, _endX + 1,0,-1); // a view, not copy 
+  if (scaleTargets == 0) {
+    _prev[inpIdx]->getActsGrad().inRangeInc(1,0); // set all to zero
+    sliced_actsgrads.add(v);
+  } else {
+    sliced_actsgrads.add(v);
+  }
+  delete &sliced_actsgrads;
+}
+
+
+/* 
+ * =======================
+ * ConcatenationLayer
+ * =======================
+ */
+ConcatenationLayer::ConcatenationLayer(ConvNet* convnet, PyObject* paramsDict)
+    : Layer(convnet, paramsDict,false) {
+  _numOutputs = pyDictGetInt(paramsDict, "outputs");
+  _copyOffsets = pyDictGetIntV(paramsDict, "copyOffsets");
+  _copyOffsets->push_back(_numOutputs);
+}
+
+ConcatenationLayer::~ConcatenationLayer() {
+    delete _copyOffsets;
+}
+
+void ConcatenationLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  getActs().resize(_numOutputs, _inputs[inpIdx]->getNumCols());
+  _inputs[inpIdx]->copy(getActs(), 0, -1, 0, -1, _copyOffsets->at(inpIdx), 0);
+}
+
+void ConcatenationLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
+    NVMatrix& copySrc = v.sliceRows(_copyOffsets->at(inpIdx), _copyOffsets->at(inpIdx + 1)); // view
+    _prev[inpIdx]->getActsGrad().add(copySrc, scaleTargets, 1);
+    delete &copySrc;
+}
+
+
+
 /* 
  * =======================
  * EltwiseSumLayer
@@ -693,6 +763,56 @@ void EltwiseMaxLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passTy
 void EltwiseMaxLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
     computeEltwiseMaxGrad(v, *_inputs[inpIdx], getActs(), _prev[inpIdx]->getActsGrad(), scaleTargets != 0);
 }
+
+
+/* 
+ * =======================
+ * ForwardLayer
+ * =======================
+ */
+ForwardLayer::ForwardLayer(ConvNet* convNet, PyObject* paramsDict) : Layer(convNet, paramsDict, false) {
+  _random_type = pyDictGetString(paramsDict, "randomtype");
+  _pass_gradients = pyDictGetInt(paramsDict, "passgradients");
+  if (_pass_gradients != 0) {
+    _pass_gradients= 1;
+  }
+  _add_noise = false;
+  if (_random_type == "gauss") {
+    float mean = pyDictGetFloat(paramsDict, "mean");
+    float sigma = pyDictGetFloat(paramsDict, "sigma");
+    _params.push_back(mean);
+    _params.push_back(sigma);
+    _add_noise = true;
+  } else {
+    assert(_random_type == "none");
+  }
+}
+
+void ForwardLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  assert(inpIdx==0);
+  _inputs[inpIdx]->copy(getActs());
+  // only process gaussian noise now
+  if (_random_type == "gauss") {
+    getActs().addGaussianNoise(_params[1]);
+    if (_params[0] != 0) {
+      getActs().addScalar(_params[0]);
+    }
+  }
+}
+
+void ForwardLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  _prev[inpIdx]->getActsGrad().add(v, scaleTargets, _pass_gradients);
+}
+
+void ForwardLayer::set_params(const float* params, int len) {
+  _params.clear();
+  for (int i = 0; i < len; ++i) {
+    _params.push_back(params[i]);
+  }
+}
+
+
+
 
 /* 
  * =======================
@@ -993,6 +1113,14 @@ CostLayer& CostLayer::makeCostLayer(ConvNet* convNet, string& type, PyObject* pa
       return *new EltwiseLogregCostLayer(convNet, paramsDict);
     } else if (type == "cost.eltl2svm") {
       return *new EltwiseL2SVMCostLayer(convNet, paramsDict);
+    } else if (type == "cost.loglikegauss") {
+      return *new LoglikeGaussianCostLayer(convNet, paramsDict);
+    } else if (type == "cost.ssvm") {
+      return *new SSVMCostLayer(convNet, paramsDict);
+    } else if (type == "cost.logistic") {
+      return *new LogisticCostLayer(convNet, paramsDict);
+    } else if (type == "cost.const") {
+      return *new ConstCostLayer(convNet, paramsDict);
     }
     throw string("Unknown cost layer type ") + type;
 }
@@ -1115,4 +1243,345 @@ void EltwiseL2SVMCostLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTarget
   NVMatrix& grad = _prev[1]->getActsGrad();
   grad.resize(labels);
   computeEltwiseL2SVMGrad(labels, getActs(), grad, scaleTargets == 1, _b, _coeff);
+}
+
+
+
+LoglikeGaussianCostLayer:: LoglikeGaussianCostLayer(ConvNet* convNet, PyObject* paramsDict):CostLayer(convNet, paramsDict, false) {
+  _use_ubound =(pyDictGetInt(paramsDict, "use_ubound")!=0);
+  _use_lbound =(pyDictGetInt(paramsDict, "use_lbound")!=0);
+  PyObject* pstring = Py_BuildValue("s", "close_form_freq");
+  if (PyDict_Contains(paramsDict, pstring)) {
+    _close_form_freq = pyDictGetInt(paramsDict, "close_form_freq");
+  } else {
+    _close_form_freq = -1;
+  }  
+  Py_DECREF(pstring);
+  pstring = Py_BuildValue("s", "use_log_weights");
+  if (PyDict_Contains(paramsDict, pstring)) {
+    _use_log_weights = pyDictGetInt(paramsDict, "use_log_weights")!=0;
+  } else {
+    _use_log_weights = false;
+  }
+  Py_DECREF(pstring);   
+  printf("C  close_form_freq = %d\n", _close_form_freq);
+  _close_form_update_count = 0;
+  if (_use_ubound) {
+    floatv &ubound_list = *pyDictGetFloatV(paramsDict, "ubound"); 
+    _ubound = ubound_list[0];
+    delete &ubound_list;
+    printf("Use upper bound, ubound = %.6f\n", _ubound);
+  } else {
+    _ubound = 0;
+  }
+  if (_use_lbound) {
+    floatv &lbound_list = *pyDictGetFloatV(paramsDict, "lbound");
+    _lbound = lbound_list[0];
+    printf("Use lower bound, lbound = %.6f\n", _lbound);
+    delete &lbound_list;
+  } else {
+    _lbound = 0;
+  }
+  
+  // printf("Before getting the weights matrix\n");
+  
+  MatrixV& hWeights = *pyDictGetMatrixV(paramsDict, "weights");
+  MatrixV& hWeightsInc = *pyDictGetMatrixV(paramsDict, "weightsInc");
+
+  floatv& momW = *pyDictGetFloatV(paramsDict, "momW");
+  floatv& epsW = *pyDictGetFloatV(paramsDict, "epsW");
+  floatv& wc = *pyDictGetFloatV(paramsDict, "wc");
+  
+  // Source layers for shared weights
+  intv& weightSourceLayerIndices = *pyDictGetIntV(paramsDict, "weightSourceLayerIndices");
+  // Weight matrix indices (inside the above source layers) for shared weights
+  intv& weightSourceMatrixIndices = *pyDictGetIntV(paramsDict, "weightSourceMatrixIndices");
+
+  //I copy from weightlayer, It is not good though
+  for (int i = 0; i < weightSourceLayerIndices.size(); i++) {
+        int srcLayerIdx = weightSourceLayerIndices[i];
+        int matrixIdx = weightSourceMatrixIndices[i];
+        if (srcLayerIdx == convNet->getNumLayers()) { // Current layer
+          assert(0); // This should not happen in principle
+            _weights.addWeights(*new Weights(_weights[matrixIdx], epsW[i]));
+        } else if (srcLayerIdx >= 0) {
+          assert(0); // This should not happen in principle
+            // WeightLayer& srcLayer = *static_cast<WeightLayer*>(&convNet->getLayer(srcLayerIdx));
+            // Weights* srcWeights = &srcLayer.getWeights(matrixIdx);
+            // _weights.addWeights(*new Weights(*srcWeights, epsW[i]));
+        } else {
+            _weights.addWeights(*new Weights(*hWeights[i], *hWeightsInc[i], epsW[i], wc[i], momW[i], false));
+        }
+    }
+  delete &weightSourceLayerIndices;
+  delete &weightSourceMatrixIndices;
+  delete &hWeights;
+  delete &hWeightsInc;
+  delete &momW;
+  delete &epsW;
+  delete &wc;  
+}
+
+void LoglikeGaussianCostLayer::updateWeights() {
+  // For _use_log_weights WILL NOT AFFECT CLOSE FORM UPDATING
+  if (_close_form_freq <= 0) {
+  _weights.update();
+  } else {
+    // If we update the sigma in close form, we copy the weights from getInc()
+    // when time is right
+    if (_close_form_update_count >= _close_form_freq) {
+      for (int i = 0; i < _weights.getSize(); ++i) {
+        _weights[i].getInc().copy(_weights[i].getW());
+        _weights[i].getW().scale(1.0/_close_form_update_count);
+      }
+      _close_form_update_count = 0;
+    } 
+  }
+  NVMatrix mask;
+  if (_use_lbound) {
+    _weights[0].getW().biggerThanScalar( _lbound, mask);
+    _weights[0].getW().eltwiseMult(mask);
+    _weights[0].getW().add(mask, -_lbound);
+    _weights[0].getW().addScalar(_lbound);
+  }
+  if (_use_ubound) {
+    _weights[0].getW().smallerThanScalar( _ubound, mask);
+    _weights[0].getW().eltwiseMult(mask);
+    _weights[0].getW().add(mask, -_ubound);
+    _weights[0].getW().addScalar(_ubound);
+  }
+  printf("Max weights = %.6f, min weights = %.6f\n", _weights[0].getW().max(), \
+         _weights[0].getW().min());
+  // (Maybe modify nvmatrix.cu later). Fortunately, weights[0] will not be a large matrix
+  // The computation should be acceptable
+}
+
+void LoglikeGaussianCostLayer::copyToCPU() {
+  _weights.copyToCPU();
+}
+
+void LoglikeGaussianCostLayer::copyToGPU() {
+  _weights.copyToGPU();
+}
+
+Weights& LoglikeGaussianCostLayer::getWeights(int idx) {
+  assert( idx == 0);
+  return _weights[idx];
+}
+void LoglikeGaussianCostLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  assert(inpIdx == 0);
+  float sqdiff_part, prior_part, loglike;
+  _inputs[inpIdx]->apply(NVMatrixOps::Square(), getActs());
+  int num_data = getActs().getNumCols();
+  float init_act_sum = getActs().sum();
+  if (_use_log_weights) {
+    NVMatrix exp_neg2weights;
+    _weights[0].getW().scale(-2, exp_neg2weights);
+    exp_neg2weights.apply(NVMatrixOps::Exp());
+    getActs().eltwiseMultByVector(exp_neg2weights);
+    sqdiff_part = getActs().sum() * 0.5;
+    prior_part = _weights[0].getW().sum() * num_data;
+  } else {
+    // NVMatrix result_mat;
+    NVMatrix square_weight;
+    _weights[0].getW().apply(NVMatrixOps::Square(), square_weight);
+    // printf("\n=====Init act=%.6f\n", getActs().sum());
+    getActs().eltwiseDivideByVector(square_weight);
+    square_weight.apply(NVMatrixOps::Log());
+    sqdiff_part = getActs().sum() * 0.5;
+    prior_part = square_weight.sum()* num_data * 0.5; 
+  }
+  loglike =  sqdiff_part + prior_part;
+  // printf("sqdiff part = %.6f, prior_part = %.6f\n", sqdiff_part, prior_part);
+  // Keep consistent (with squarecost layer), I do the sum instead of mean
+  _costv.clear();
+  _costv.push_back(loglike);
+  _costv.push_back(init_act_sum);
+  _costv.push_back(sqdiff_part);
+  _costv.push_back(prior_part);
+}
+
+
+
+void LoglikeGaussianCostLayer::bpropCommon(NVMatrix& v, PASS_TYPE passType) {
+  // v is ? for cost layer?
+  // Don't need to use v anyway
+  for (int i = 0; i < _weights.getSize(); i++) {
+    if (_weights[i].getEps() > 0) {
+      bpropWeights(v, i, passType);
+      // Increment its number of updates
+      _weights[i].incNumUpdates();
+    }
+  }  
+}
+
+void LoglikeGaussianCostLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  assert(inpIdx == 0);
+  if (_use_log_weights) {
+    NVMatrix exp_neg2weights, grads;
+    _weights[0].getW().scale(-2, exp_neg2weights);
+    exp_neg2weights.apply(NVMatrixOps::Exp());
+    _inputs[0]->eltwiseMultByVector(exp_neg2weights, grads);
+    _prev[inpIdx]->getActsGrad().add(grads, scaleTargets, -_coeff);
+  } else {
+    NVMatrix square_weight, grads;
+    _weights[0].getW().apply(NVMatrixOps::Square(), square_weight);
+    _inputs[0]->eltwiseDivideByVector(square_weight, grads);
+    // 2 is cancelled by 1/2 for each term
+    _prev[inpIdx]->getActsGrad().add(grads, scaleTargets, -_coeff);
+  }
+}
+void LoglikeGaussianCostLayer::bpropWeights(NVMatrix& v, int inpIdx, PASS_TYPE passType) {
+  NVMatrix res;
+  assert(inpIdx== 0);
+  int ncases = getActs().getNumCols();
+  if (_close_form_freq <= 0) {
+    NVMatrix res_avg;
+    float scaleInc = (_weights[inpIdx].getNumUpdates() == 0 && passType != PASS_GC) * _weights[inpIdx].getMom();
+    float scaleGrads = passType == PASS_GC ? 1 : _weights[inpIdx].getEps() / ncases;
+    if (_use_log_weights) {
+      //getActs() == e^(-2t) * || y_i - \hat{y}_i ||^2
+      getActs().addScalar(-1,1,res);
+      res.sum(1, res_avg);
+      _weights[inpIdx].getInc().add(res_avg, scaleInc, -scaleGrads * _coeff);
+    } else {
+      getActs().addScalar(-1, 1, res);
+      res.sum(1,res_avg);
+      res_avg.eltwiseDivideByVector(_weights[0].getW());
+      _weights[inpIdx].getInc().add(res_avg, scaleInc, -scaleGrads * _coeff);
+    }
+  } else { //store variance in getInc()
+    NVMatrix abs_inputs;
+    NVMatrix var_inputs;
+    _inputs[inpIdx]->apply(NVMatrixOps::Abs(), abs_inputs);
+    abs_inputs.sum(1, var_inputs);
+    if (_close_form_update_count == 0) {
+      _weights[inpIdx].getInc().add(var_inputs, 0, 1);
+    } else {
+      _weights[inpIdx].getInc().add(var_inputs,1,1);
+    }
+    _close_form_update_count += ncases;
+    printf("abs sum = %.6f\n", var_inputs.sum());
+    printf("close_form_update_count = %d\n", _close_form_update_count);
+  }
+}
+
+/* 
+ * =====================
+ * SSVMCostLayer
+     Calculate the following cost function
+      max_y  \delta(y,y_i) + <\Phi(x_i, y), w > - < \Phi(x_i, y_i),w>
+      
+ * =====================
+ */
+SSVMCostLayer::SSVMCostLayer(ConvNet* convNet, PyObject* paramsDict):CostLayer(convNet, paramsDict, false)  {
+   _num_groups =  pyDictGetInt(paramsDict, "groups");
+}
+SSVMCostLayer::~SSVMCostLayer() {
+  // pass
+}
+void SSVMCostLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  // calculate the cost once
+  if (inpIdx == 0) {
+    // Only pick one max at the time
+    NVMatrix& ind  = *_inputs[0];
+    NVMatrix& pred = *_inputs[1];
+    NVMatrix act;
+    int ndata = ind.getNumCols();
+    pred.copy(act);
+    act.subtract(ind);
+    _act_max_ind.resize(ind);
+    _act_max_ind.apply(NVMatrixOps::Zero());
+    _act_max_value.resize(_num_groups, ndata); 
+    int num_data = ind.getNumCols();
+    // do sth here
+    computeSSVMCost(ind, act, _act_max_ind, _act_max_value);
+    _costv.clear();
+    _costv.push_back(_act_max_value.sum()  + _num_groups * num_data);
+  }
+}
+
+void SSVMCostLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  assert(inpIdx == 1); // because the pred is the second input
+  NVMatrix& ind  = *_inputs[0];
+  _act_max_ind.subtract(ind);
+  _prev[inpIdx]->getActsGrad().add(_act_max_ind, scaleTargets, -_coeff);
+}
+
+
+/* 
+ * =====================
+ * LogisticCostLayer
+     Calculate the following cost function
+      log ( 1 + e^(ax) )/a
+ * =====================
+ */
+
+LogisticCostLayer::LogisticCostLayer(ConvNet* convNet, PyObject* paramsDict):CostLayer(convNet, paramsDict, false)  {
+  _a = pyDictGetFloat(paramsDict, "a");
+  _u = pyDictGetFloat(paramsDict, "u");
+  _neuron = new SoftReluNeuron();
+}
+LogisticCostLayer::~LogisticCostLayer() {
+  // pass
+}
+
+// Acts will store g = log ( 1 + e^(a(x-u)))
+//
+void LogisticCostLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  assert(inpIdx == 0);
+  if (_u == 0 && _a == 1) {
+    _neuron->activate( *_inputs[0], getActs());
+  } else {
+    NVMatrix transformed_input;
+    _inputs[0]->copy(transformed_input);
+    if (_u != 0) {
+      transformed_input.addScalar(-_u);
+    }
+    if (_a != 1) {
+      transformed_input.scale(_a);
+    }
+    // I am sure softRelu will neverl use input
+    _neuron->activate(transformed_input, getActs());
+  }
+  _costv.clear();
+  _costv.push_back(getActs().sum()/_a);
+}
+
+void LogisticCostLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
+    assert(inpIdx == 0);
+    v.resize(_inputs[0]->getNumRows(), _inputs[0]->getNumCols());
+    v.apply(NVMatrixOps::Zero());
+    v.addScalar(-_coeff);
+    _neuron->computeInputGrad(v, _prev[0]->getActsGrad(), scaleTargets > 0);
+}
+
+/* 
+ * =====================
+ * ConstCostlayer
+     Calculate the following cost function
+     L(x) = x
+     The gradient will always be one
+ * =====================
+ */
+
+
+ConstCostLayer::ConstCostLayer(ConvNet* convNet, PyObject* paramsDict):CostLayer(convNet, paramsDict, false)  {
+}
+ConstCostLayer::~ConstCostLayer() {
+  // pass
+}
+
+void ConstCostLayer::fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType) {
+  assert(inpIdx == 0);
+  _inputs[0]->copy(getActs());
+  _costv.clear();
+  _costv.push_back(getActs().sum());
+}
+
+void ConstCostLayer::bpropActs(NVMatrix& v, int inpIdx, float scaleTargets, PASS_TYPE passType) {
+    assert(inpIdx == 0);
+    v.resize(getActs().getNumRows(), getActs().getNumCols());
+    v.apply(NVMatrixOps::One());
+    _prev[0]->getActsGrad().add(v, scaleTargets > 0, -_coeff); 
 }

@@ -161,6 +161,13 @@ class LayerParser:
     # Add parameters from layer parameter file
     def add_params(self, mcp):
         pass
+
+    # Some parameters needs to be updated when resuming training
+    def update_params(self, mcp):
+        dic, name = self.dic, self.dic['name']
+        if mcp.safe_get_bool(name, 'update', default=False):
+            dic['dropout'] = mcp.safe_get_float(name, 'dropout', default=1.0)
+            print 'update dropout to %.2f successfully' % dic['dropout']
     
     def init(self, dic):
         self.dic = dic
@@ -288,12 +295,14 @@ class LayerParser:
             
             mcp = MyConfigParser(dict_type=OrderedDict)
             mcp.read([param_cfg_path])
-            
+            params_sections = set(mcp.sections())
             for l in layers:
                 if not mcp.has_section(l['name']) and l['requiresParams']:
                     raise LayerParsingError("Layer '%s' of type '%s' requires extra parameters, but none given in file '%s'." % (l['name'], l['type'], param_cfg_path))
                 lp = layer_parsers[l['type']]().init(l)
                 lp.add_params(mcp)
+                if lp.dic['name'] in params_sections:
+                    lp.update_params(mcp)
                 lp.dic['conserveMem'] = model.op.get_value('conserve_mem')
         except LayerParsingError, e:
             print e
@@ -604,7 +613,36 @@ class NeuronLayerParser(LayerWithInputParser):
         dic['forceOwnActs'] = False
         print "Initialized neuron layer '%s', producing %d outputs" % (name, dic['outputs'])
         return dic
+    
+class SliceLayerParser(LayerWithInputParser):
+    def __init__(self):
+        LayerWithInputParser.__init__(self)
+    def parse(self, name, mcp, prev_layers,model=None):
+        dic = LayerWithInputParser.parse(self, name, mcp, prev_layers, model)
+        if len(dic['numInputs']) != 1:
+            raise LayerParsingError("Layer '%s': Only take one onput. Got dimensionalities: %s" % (name, ", ".join(str(s) for s in dic['numInputs'])))
+        if prev_layers[0]['usesActs'] == False:
+            raise LayerParsingError("Previous layer of %s must use Acts" % name)
+        dic['startX'] = mcp.safe_get_int(name, 'startX')
+        dic['endX'] = mcp.safe_get_int(name, 'endX')
+        dic['outputs'] = dic['endX'] - dic['startX'] + 1
+        print "Initialized SliceLayer  '%s', producing %d outputs" % (name, dic['outputs'])
+        return dic
 
+class ConcatenationLayerParser(LayerWithInputParser):
+    """
+    I just copy it from cuda-convnet2
+    """
+    def __init__(self):
+        LayerWithInputParser.__init__(self)
+        
+    def parse(self, name, mcp, prev_layers, model):
+        dic = LayerWithInputParser.parse(self, name, mcp, prev_layers, model)
+        dic['outputs'] = sum(l['outputs'] for l in dic['inputLayers'])
+        dic['copyOffsets'] = [sum(dic['inputLayers'][j]['outputs'] for j in xrange(i)) for i in xrange(len(dic['inputLayers']))]
+        print "Initialized concatenation layer '%s', producing %d outputs" % (name,  dic['outputs'])
+        return dic
+        
 class EltwiseSumLayerParser(LayerWithInputParser):
     def __init__(self):
         LayerWithInputParser.__init__(self)
@@ -1097,6 +1135,32 @@ class NormLayerParser(LayerWithInputParser):
         print "Initialized %s-normalization layer '%s', producing %dx%d %d-channel output" % (self.norm_type, name, dic['imgSize'], dic['imgSize'], dic['channels'])
         return dic
 
+class ForwardLayerParser(LayerWithInputParser):
+    def __init__(self):
+        LayerWithInputParser.__init__(self)
+    def add_params(self, mcp):
+        """
+        sigma ,mean can be set in the params file
+        """
+        dic, name = self.dic, self.dic['name']
+        if dic['randomtype'] == 'gauss':
+            dic['sigma'] = mcp.safe_get_float(name, 'sigma', default=1)
+            dic['mean'] = mcp.safe_get_float(name, 'mean', default=0)
+            print '   -- with Gaussian noise (u=%.6f\t,sigma=%.6f)' % (dic['mean'], dic['sigma'])
+        
+    def parse(self, name, mcp, prev_layers, model):
+        dic = LayerWithInputParser.parse(self, name, mcp, prev_layers, model)
+        if len(dic['inputLayers']) != 1:
+            raise LayerParsingError("Layer '%s': number of input should be 1" % name)
+        dic['outputs'] = sum(l['outputs'] for l in dic['inputLayers'])
+        dic['randomtype'] = mcp.safe_get(name, 'randomtype')
+
+        if not dic['randomtype'] in ['gauss', 'none']:
+             raise LayerParsingError('random type %s is not supported' % dic['randomtype'])
+        dic['passgradients'] = mcp.safe_get_int(name, 'passgradients')
+        print "Initialized ForwardLayer '%s', producing %d outputs" % (name, dic['outputs'])
+        return dic
+    
 class CostParser(LayerWithInputParser):
     def __init__(self, num_inputs=-1):
         LayerWithInputParser.__init__(self, num_inputs=num_inputs)
@@ -1169,7 +1233,116 @@ class EltL2SVMCostParser(CostParser):
         dic, name = self.dic, self.dic['name']
         dic['a'] = mcp.safe_get_float(name, 'a', default=0.5)
         dic['b'] = mcp.safe_get_float(name, 'b', default=0.5)
+
+class LoglikeGaussianCostParser(CostParser, WeightLayerParser):
+    def __init__(self):
+        CostParser.__init__(self, num_inputs=1)
+    def parse(self, name, mcp, prev_layers, model):
+        dic = WeightLayerParser.parse(self, name, mcp, prev_layers, model)
+        if len(dic['numInputs']) != 1:
+            raise LayerParsingError('%s layer only accept one layer as input' % name)
+        dic['outputs'] = 1
+        self.make_weights(dic['initW'], dic['numInputs'], [dic['outputs']] * len(dic['numInputs']),order='F')
+        # added for cost layer
+        dic['requiresParams'] = True
+        del dic['neuron']
+        print "Initialized LoglikeGaussianCostLayer '%s', producing %dx%d %d-channel output" % (name, dic['numInputs'][0], 1, 1)
+        return dic
         
+    def add_params(self,mcp):
+        CostParser.add_params(self, mcp)
+        dic,name = self.dic, self.dic['name']
+        dic['epsW'] = mcp.safe_get_float_list(name, 'epsW')
+        dic['momW'] = mcp.safe_get_float_list(name, 'momW')
+        dic['lbound'] = mcp.safe_get_float_list(name, 'lbound', [])
+        dic['ubound'] = mcp.safe_get_float_list(name, 'ubound', [])
+        dic['close_form_freq'] = mcp.safe_get_int(name, 'close_form_freq', -1)
+        dic['use_log_weights'] = mcp.safe_get_int(name, 'use_log_weights', 0)
+        if dic['close_form_freq'] >=0:
+            print 'Use Close form solution, update frequency = %d' % dic['close_form_freq']
+        else:
+            print 'Use Gradient descent to update weights' 
+        n_weight = len(dic['epsW'])
+        # print dic['lbound'], dic['ubound'], '======'
+        if len(dic['lbound']) == 0:
+            dic['lbound'] = [0] * n_weight
+            dic['use_lbound'] = False
+        else:
+            dic['use_lbound'] = True
+        if len(dic['ubound']) == 0:
+            dic['ubound'] = [0] * n_weight
+            dic['use_ubound'] = False
+        else:
+            dic['use_ubound'] = True
+        # For future use, currently wc is set to 0
+        dic['wc'] = mcp.safe_get_float_list(name, 'wc')
+        dic['wc'] = [0.0] * n_weight 
+        self.verify_num_params(['epsW', 'momW', 'wc'])
+        dic['gradConsumer'] = n.any([w > 0 for w in dic['epsW']])
+
+
+class SSVMCostParser(CostParser):
+    def __init__(self):
+        ## 
+        ## The first input are the indicators
+        ## And the second inputs are predictions
+        CostParser.__init__(self, num_inputs=2)
+    def parse(self, name, mcp, prev_layers, model):
+        dic = CostParser.parse(self, name, mcp, prev_layers, model)
+        dic['groups'] = mcp.safe_get_int(name, 'groups', default=-1)
+        
+        if dic['groups'] == -1:
+            raise LayerParsingError('Missing number of groups')
+        if dic['numInputs'][0] % dic['groups'] != 0:
+            raise LayerParsingError('The nubmerInputs %d are not divisible by groups %d' % (dic['numInputs'],dic['groups']))
+        if dic['numInputs'][0] != dic['numInputs'][1]:
+            print str(dic['numInputs'][0]) + '!='+ str( dic['numInputs'][1])
+            raise LayerParsingError("Layer '%s': dimensionality of two input must be the same" % name)
+        if prev_layers[dic['inputs'][0]]['type'] != 'data':
+            raise LayerParsingError("Layer '%s': first input must be data layer" % name)
+        if 'neuron' in prev_layers[dic['inputs'][1]] and prev_layers[dic['inputs'][1]]['neuron'] not in ["", "linear"] :
+            raise LayerParsingError("Layer '%s': Second input can either take no neuron or linear neuron \"%s\": it should be linear mapping" % (name, prev_layers[dic['inputs'][1]]['neuron']))
+        if dic['numInputs'][0] % dic['groups'] != 0:
+            raise LayerParsingError('The nubmerInputs %d are not divisible by groups %d' % (dic['numInputs'],dic['groups']))
+        print "Initialized SSVMCostLayer '%s', producing %dx%d %d-channel output" % (name, dic['numInputs'][0], 1, 1)
+        return dic
+
+
+class LogisticCostParser(CostParser):
+    def __init__(self):
+        """
+        Only one input is accepted
+        """
+        CostParser.__init__(self, num_inputs=1)
+    def parse(self, name, mcp, prev_layers, model):
+        dic = CostParser.parse(self, name, mcp, prev_layers, model)
+        dic['a'] = mcp.safe_get_float(name, 'a',default=1)
+        dic['u'] = mcp.safe_get_float(name, 'u', default=0)
+        if dic['a'] <= 0:
+            raise LayerParsingError('Layer %s: a can only be positive number' % name)
+        if len(dic['numInputs'])!=1:
+            raise LayerParsingError('Layer %s: The number of inputs should be 1' % name)
+        print "Initialized LogisticCostLayer '%s', producing %dx%d %d-channel output" % (name, dic['numInputs'][0], 1, 1)
+        return dic
+
+class ConstCostParser(CostParser):
+    def __init__(self):
+        """
+        The cost of this layer is simple the input.
+        L(x) = x
+        The gradients will always be 1
+        Only one input is accepted
+        """
+        CostParser.__init__(self, num_inputs=1)
+    def parse(self, name, mcp, prev_layers, model):
+        dic = CostParser.parse(self, name, mcp, prev_layers, model)
+
+        if len(dic['numInputs'])!=1:
+            raise LayerParsingError('Layer %s: The number of inputs should be 1' % name)
+        print "Initialized ConstCostLayer '%s', producing %dx%d %d-channel output" % (name, dic['numInputs'][0], 1, 1)
+        self.dic['outputs'] = sum(l['outputs'] for l in dic['inputLayers'])
+        return dic
+   
 # All the layer parsers
 layer_parsers = {'data': lambda : DataLayerParser(),
                  'fc': lambda : FCLayerParser(),
@@ -1179,6 +1352,9 @@ layer_parsers = {'data': lambda : DataLayerParser(),
                  'eltsum': lambda : EltwiseSumLayerParser(),
                  'eltmul': lambda : EltwiseMulLayerParser(),
                  'eltmax': lambda : EltwiseMaxLayerParser(),
+                 'forward':lambda:ForwardLayerParser(), 
+                 'slice': lambda : SliceLayerParser(),
+                 'concat': lambda: ConcatenationLayerParser(), 
                  'neuron': lambda : NeuronLayerParser(),
                  'pool': lambda : PoolLayerParser(),
                  'rnorm': lambda : NormLayerParser(NormLayerParser.RESPONSE_NORM),
@@ -1193,7 +1369,15 @@ layer_parsers = {'data': lambda : DataLayerParser(),
                  'cost.logreg': lambda : LogregCostParser(),
                  'cost.sum2': lambda : SumOfSquaresCostParser(),
                  'cost.eltlogreg':lambda:EltLogregCostParser(),
-                 'cost.eltl2svm':lambda:EltL2SVMCostParser()}
+                 'cost.eltl2svm':lambda:EltL2SVMCostParser(),
+                 'cost.loglikegauss':lambda:LoglikeGaussianCostParser(),
+                 'cost.ssvm':lambda:SSVMCostParser(),
+<<<<<<< HEAD
+                 'cost.logistic':lambda:LogisticCostParser(),
+                 'cost.const':lambda:ConstCostParser()}
+=======
+                 'cost.logistic':lambda:LogisticCostParser()}
+>>>>>>> origin/develop
  
 # All the neuron parsers
 # This isn't a name --> parser mapping as the layer parsers above because neurons don't have fixed names.

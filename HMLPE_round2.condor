@@ -1,0 +1,18 @@
+macid=19
+dpath=c8k19/ConvNet__2014-04-12_21.16.28
+tid=t41
+run_mac=c8k$(macid)
+requirements= (Machine=="$(run_mac).cs.cityu.edu.hk")
+priority    = 0
+notification= Never
+notify_user = 
+getenv      = True
+
+executable  = /usr/bin/python
+universe    = vanilla
+arguments  = convnet.py  -f /opt/visal/tmp/for_sijin/Data/saved/$(dpath) --layer-params=/home/grads/sijinli2/Projects/docs/convnet/layer-params-test-C-$(tid)_c2.cfg --epoch=400
+input      = 
+output      = /opt/visal/tmp/for_sijin/tmp/DHMLPE_log/convnet_$(run_mac)_FLIC_$(tid)_c2.output
+error       = /opt/visal/tmp/for_sijin/tmp/DHMLPE_log/convnet_$(run_mac)_FLIC_$(tid)_c2.err
+log         = /opt/visal/tmp/for_sijin/tmp/DHMLPE_log/convnet_$(run_mac)_FLIC_$(tid)_c2.log
+queue

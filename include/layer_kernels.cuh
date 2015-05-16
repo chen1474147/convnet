@@ -39,6 +39,7 @@
 
 #define ELTLOGREG_ERR_THREADS_X        256
 #define ELTL2SVM_ERR_THREADS_X 256
+#define SSVM_ERR_THREADS_X 128
 
 void computeLogregCost(NVMatrix& labels, NVMatrix& probs, NVMatrix& labelLogProbs_out, NVMatrix& correctProbs_out);
 void computeLogregGrad(NVMatrix& labels, NVMatrix& probs, NVMatrix& target, bool add, float coeff);
@@ -51,6 +52,7 @@ void computeEltwiseL2SVMGrad(NVMatrix& labels, NVMatrix& pre_grad, NVMatrix& gra
 // to avoi dividing and then multiplying by quantities that may be near zero.
 void computeLogregSoftmaxGrad(NVMatrix& labels, NVMatrix& probs, NVMatrix& target, bool add, float coeff);
 void computeEltwiseMaxGrad(NVMatrix& actGrad, NVMatrix& input, NVMatrix& output, NVMatrix& target, bool add);
-
+void computeSSVMCost(NVMatrix& ind, NVMatrix& pred, NVMatrix& act_max_ind,\
+                      NVMatrix& act_max_value);
 #endif	/* LAYER_KERNELS_CUH */
 

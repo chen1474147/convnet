@@ -29,11 +29,28 @@ from data import *
 from options import *
 from gpumodel import *
 import sys
+
+# All the external modules should be found in imodules
+sys.path.append('./imodules')
+
+### For cluster use
+sys.path.append('/home/grads/sijinli2/I_ProgramFile/I_Python/Project/I_utils')
+sys.path.append('/home/grads/sijinli2/I_ProgramFile/I_Python/Project')
+import iutils as iu
+ppath = '/home/grads/sijinli2/Projects/DHMLPE/Python'
+sys.path.append(iu.fullfile(ppath, 'task'))
+sys.path.append(iu.fullfile(ppath, 'src'))
+### 
 import math as m
 import layer as lay
 from iconvdata import *
 from convdata import *
+from noah_convdata import *
+from dhmlpe_convdata import *
+from pct_convdata import *
 from os import linesep as NL
+import iconfig
+## cluster use only
 
 #import pylab as pl
 
@@ -41,18 +58,17 @@ class ConvNet(IGPUModel):
     def __init__(self, op, load_dic, dp_params={}):
         filename_options = []
         dp_params['multiview_test'] = op.get_value('multiview_test')
-        dp_params['crop_border'] = op.get_value('crop_border')
+        iconfig.add_dp_params(dp_params, op)
         IGPUModel.__init__(self, "ConvNet", op, load_dic, filename_options, dp_params=dp_params)
         
     def import_model(self):
         lib_name = "pyconvnet" if is_windows_machine() else "_ConvNet"
         print "========================="
         print "Importing %s C++ module" % lib_name
-        self.libmodel = __import__(lib_name) 
-        
+        self.libmodel = __import__(lib_name)
+
     def init_model_lib(self):
         self.libmodel.initModel(self.layers, self.minibatch_size, self.device_ids[0])
-        
     def init_model_state(self):
         ms = self.model_state
         if self.load_file:
@@ -132,7 +148,10 @@ class ConvNet(IGPUModel):
             print "%s: " % errname,
             print ", ".join("%6f" % v for v in costs[errname]),
             if sum(m.isnan(v) for v in costs[errname]) > 0 or sum(m.isinf(v) for v in costs[errname]):
-                print "^ got nan or inf!"
+                error_str = ''
+                error_str += 'NAN ' if sum(m.isnan(v) for v in costs[errname]) > 0 else ''
+                error_str += 'INF' if sum(m.isinf(v) for v in costs[errname]) else ''
+                print "^ got nan or inf! %s" % error_str
                 #sys.exit(1)
         
     def print_train_results(self):
@@ -140,7 +159,11 @@ class ConvNet(IGPUModel):
         
     def print_test_status(self):
         pass
-        
+    def get_num_batches_done(self):
+        if self.batch_size > 0:
+            return  (len(self.train_batch_range) * (self.epoch - 1) + self.batchnum - self.train_batch_range[0] + 1) / self.batch_size
+        else:
+            return (len(self.train_batch_range) * (self.epoch - 1) + self.batchnum - self.train_batch_range[0] + 1)
     def print_test_results(self):
         print ""
         print "======================Test output======================"
@@ -154,7 +177,9 @@ class ConvNet(IGPUModel):
                 elif type(l['weights']) == list:
                     print ""
                     print NL.join("Layer '%s' weights[%d]: %e [%e]" % (l['name'], i, n.mean(n.abs(w)), n.mean(n.abs(wi))) for i,(w,wi) in enumerate(zip(l['weights'],l['weightsInc']))),
-                print "%sLayer '%s' biases: %e [%e]" % (NL, l['name'], n.mean(n.abs(l['biases'])), n.mean(n.abs(l['biasesInc']))),
+                if 'biases' in l:
+                    # LSJ add: Some layer doesn't have bias
+                    print "%sLayer '%s' biases: %e [%e]" % (NL, l['name'], n.mean(n.abs(l['biases'])), n.mean(n.abs(l['biasesInc']))),
         print ""
         
     def conditional_save(self):
@@ -179,46 +204,25 @@ class ConvNet(IGPUModel):
         op.add_option("layer-params", "layer_params", StringOptionParser, "Layer parameter file")
         op.add_option("check-grads", "check_grads", BooleanOptionParser, "Check gradients and quit?", default=0, excuses=['data_path','save_path','train_batch_range','test_batch_range'])
         op.add_option("multiview-test", "multiview_test", BooleanOptionParser, "Cropped DP: test on multiple patches?", default=0, requires=['logreg_name'])
-        op.add_option("crop-border", "crop_border", IntegerOptionParser, "Cropped DP: crop border size", default=4, set_once=True)
         op.add_option("logreg-name", "logreg_name", StringOptionParser, "Cropped DP: logreg layer name (for --multiview-test)", default="")
         op.add_option("conv-to-local", "conv_to_local", ListOptionParser(StringOptionParser), "Convert given conv layers to unshared local", default=[])
         op.add_option("unshare-weights", "unshare_weights", ListOptionParser(StringOptionParser), "Unshare weight matrices in given layers", default=[])
         op.add_option("conserve-mem", "conserve_mem", BooleanOptionParser, "Conserve GPU memory (slower)?", default=0)
-                
+        ## valid for data provider loading images directly
         op.delete_option('max_test_err')
         op.options["max_filesize_mb"].default = 0
         op.options["testing_freq"].default = 50
         op.options["num_epochs"].default = 50000
         op.options['dp_type'].default = None
-        DataProvider.register_data_provider('pose', 'POSE', POSEDataProvider)
-        DataProvider.register_data_provider('multipose', 'MULTIPOSE', MultiPOSEDataProvider)
-        DataProvider.register_data_provider('largemultipose', 'LARGEMULTIPOSE', LargeMultiPOSEDataProvider)
-        DataProvider.register_data_provider('largejoints8', 'LARGEJOINTS8', LargeJoints8DataProvider)
+       
         DataProvider.register_data_provider('cifar', 'CIFAR', CIFARDataProvider)
         DataProvider.register_data_provider('dummy-cn-n', 'Dummy ConvNet', DummyConvNetDataProvider)
         DataProvider.register_data_provider('cifar-cropped', 'Cropped CIFAR', CroppedCIFARDataProvider)
-        DataProvider.register_data_provider('largejoints8andlabels', 'LARGEJOINTS8ANDLABELS', LargeJoints8AndLabelDataProvider)
-        DataProvider.register_data_provider('largejoints8andlabelsall', 'LARGEJOINTS8ANDLABELSALL', LargeJoints8AndLabelAllDataProvider)
-        DataProvider.register_data_provider('largejoints8andindicatorall', 'LARGEJOINTS8ANDINDICATORALL', LargeJoints8AndIndicatorAllDataProvider)
-        DataProvider.register_data_provider('largejoints8andindicatorfeatureall', 'LARGEJOINTS8ANDINDICATORFEATUREALL', LargeJoints8AndIndicatorFeatureAllDataProvider)
-        DataProvider.register_data_provider('largejoints8andindicatormaskall', 'LARGEJOINTS8ANDINDICATORMASKALLDATAPROVIDER', LargeJoints8AndIndicatorMaskAllDataProvider)
-        DataProvider.register_data_provider('largejtindlack_rua', 'LARGEJTINDLACK_RUA_DATAPROVIDER', LargeJtIndLack_RUA_DataProvider)
-        DataProvider.register_data_provider('largejtindlack_rla', 'LARGEJTINDLACK_RLA_DATAPROVIDER', LargeJtIndLack_RLA_DataProvider)
-        DataProvider.register_data_provider('largejtindlack_lua', 'LARGEJTINDLACK_LUA_DATAPROVIDER', LargeJtIndLack_LUA_DataProvider)
-        DataProvider.register_data_provider('largejtindlack_lla', 'LARGEJTINDLACK_LLA_DATAPROVIDER', LargeJtIndLack_LLA_DataProvider)
-        DataProvider.register_data_provider('largejtindlack_ua', 'LARGEJTINDLACK_UA_DATAPROVIDER', LargeJtIndLack_UA_DataProvider)
-        DataProvider.register_data_provider('largejtindlack_la', 'LARGEJTINDLACK_LA_DATAPROVIDER', LargeJtIndLack_LA_DataProvider)
-        DataProvider.register_data_provider('largejtindlack_head', 'LARGEJTINDLACK_HEAD_DATAPROVIDER', LargeJtIndLack_HEAD_DataProvider)
-        DataProvider.register_data_provider('largejtindlack_shoulder', 'LARGEJTINDLACK_SHOULDER_DATAPROVIDER', LargeJtIndLack_SHOULDER_DataProvider)
-        DataProvider.register_data_provider('largejtind2', 'LARGEJTIND2_DATAPROVIDER', LargeJtInd2_DataProvider)
-        DataProvider.register_data_provider('largejtind2mask', 'LARGEJTIND2MASK_DATAPROVIDER', LargeJtInd2Mask_DataProvider)
-        DataProvider.register_data_provider('h36mmono', 'H36MMONODATAPROVIDER', H36MMonoDataProvider) 
+
+        iconfig.add_options(op)
+        iconfig.register_data_provider(DataProvider)
         return op
     
 if __name__ == "__main__":
     #nr.seed(5)
-    op = ConvNet.get_options_parser()
-
-    op, load_dic = IGPUModel.parse_options(op)
-    model = ConvNet(op, load_dic)
-    model.start()
+    op = ConvNet.get_o
