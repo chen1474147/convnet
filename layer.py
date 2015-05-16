@@ -1372,13 +1372,9 @@ layer_parsers = {'data': lambda : DataLayerParser(),
                  'cost.eltl2svm':lambda:EltL2SVMCostParser(),
                  'cost.loglikegauss':lambda:LoglikeGaussianCostParser(),
                  'cost.ssvm':lambda:SSVMCostParser(),
-<<<<<<< HEAD
                  'cost.logistic':lambda:LogisticCostParser(),
                  'cost.const':lambda:ConstCostParser()}
-=======
-                 'cost.logistic':lambda:LogisticCostParser()}
->>>>>>> origin/develop
- 
+
 # All the neuron parsers
 # This isn't a name --> parser mapping as the layer parsers above because neurons don't have fixed names.
 # A user may write tanh[0.5,0.25], etc.
