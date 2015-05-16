@@ -29,8 +29,10 @@ from data import *
 from options import *
 from gpumodel import *
 import sys
+
 # All the external modules should be found in imodules
 sys.path.append('./imodules')
+
 ### For cluster use
 sys.path.append('/home/grads/sijinli2/I_ProgramFile/I_Python/Project/I_utils')
 sys.path.append('/home/grads/sijinli2/I_ProgramFile/I_Python/Project')
@@ -45,7 +47,7 @@ from iconvdata import *
 from convdata import *
 from noah_convdata import *
 from dhmlpe_convdata import *
-#from pct_convdata import *
+from pct_convdata import *
 from os import linesep as NL
 import iconfig
 ## cluster use only
@@ -223,8 +225,4 @@ class ConvNet(IGPUModel):
     
 if __name__ == "__main__":
     #nr.seed(5)
-    op = ConvNet.get_options_parser()
-
-    op, load_dic = IGPUModel.parse_options(op)
-    model = ConvNet(op, load_dic)
-    model.start()
+    op = ConvNet.get_o

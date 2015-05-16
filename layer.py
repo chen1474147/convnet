@@ -1154,6 +1154,7 @@ class ForwardLayerParser(LayerWithInputParser):
             raise LayerParsingError("Layer '%s': number of input should be 1" % name)
         dic['outputs'] = sum(l['outputs'] for l in dic['inputLayers'])
         dic['randomtype'] = mcp.safe_get(name, 'randomtype')
+
         if not dic['randomtype'] in ['gauss', 'none']:
              raise LayerParsingError('random type %s is not supported' % dic['randomtype'])
         dic['passgradients'] = mcp.safe_get_int(name, 'passgradients')
@@ -1306,6 +1307,7 @@ class SSVMCostParser(CostParser):
         print "Initialized SSVMCostLayer '%s', producing %dx%d %d-channel output" % (name, dic['numInputs'][0], 1, 1)
         return dic
 
+
 class LogisticCostParser(CostParser):
     def __init__(self):
         """
@@ -1334,13 +1336,13 @@ class ConstCostParser(CostParser):
         CostParser.__init__(self, num_inputs=1)
     def parse(self, name, mcp, prev_layers, model):
         dic = CostParser.parse(self, name, mcp, prev_layers, model)
+
         if len(dic['numInputs'])!=1:
             raise LayerParsingError('Layer %s: The number of inputs should be 1' % name)
         print "Initialized ConstCostLayer '%s', producing %dx%d %d-channel output" % (name, dic['numInputs'][0], 1, 1)
         self.dic['outputs'] = sum(l['outputs'] for l in dic['inputLayers'])
         return dic
-
-    
+   
 # All the layer parsers
 layer_parsers = {'data': lambda : DataLayerParser(),
                  'fc': lambda : FCLayerParser(),
@@ -1370,8 +1372,12 @@ layer_parsers = {'data': lambda : DataLayerParser(),
                  'cost.eltl2svm':lambda:EltL2SVMCostParser(),
                  'cost.loglikegauss':lambda:LoglikeGaussianCostParser(),
                  'cost.ssvm':lambda:SSVMCostParser(),
+<<<<<<< HEAD
                  'cost.logistic':lambda:LogisticCostParser(),
                  'cost.const':lambda:ConstCostParser()}
+=======
+                 'cost.logistic':lambda:LogisticCostParser()}
+>>>>>>> origin/develop
  
 # All the neuron parsers
 # This isn't a name --> parser mapping as the layer parsers above because neurons don't have fixed names.

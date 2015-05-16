@@ -27,7 +27,9 @@ from ibasic_convdata import *
 import dhmlpe
 import indicatormap
 import dhmlpe_features
+
 import dhmlpe_utils as dutils
+
 ###
 
 class DHMLPEDataProviderError(Exception):
@@ -87,7 +89,9 @@ class CroppedDHMLPEJointDataProvider(CroppedImageDataProvider):
         #  subtract offset to get the cropped coordinates 
         offset = np.tile(np.concatenate([np.asarray(self.cur_offset_c).reshape((1,-1)), np.asarray(self.cur_offset_r).reshape((1,-1))],axis=0), [self.num_joints,1]).reshape((2,-1),order='F')
         pts = pts - offset # 0-index coordinates
+
         dic['joints_2d'] = pts.reshape((2*self.num_joints, -1),order='F')
+
         allmaps = self.joint_indmap.get_joints_indicatormap(pts.T)
         mdim = self.joint_indmap.mdim
         ndata = len(dic['cur_batch_indexes'])
@@ -109,6 +113,7 @@ class CroppedDHMLPEJointDataProvider(CroppedImageDataProvider):
             return self.num_joints * 3
         else:
             return iprod(self.joint_indmap.mdim) * self.num_joints
+
 
 
 class CroppedDHMLPEJointDoubleDataProvider(CroppedDHMLPEJointDataProvider):
@@ -143,7 +148,7 @@ class CroppedDHMLPEJointDoubleDataProvider(CroppedDHMLPEJointDataProvider):
             return CroppedDHMLPEJointDataProvider.get_data_dims(self,idx)
         else:
             return CroppedDHMLPEJointDataProvider.get_data_dims(self,idx - 3)
-        
+       
 class CroppedDHMLPEJointOccDataProvider(CroppedDHMLPEJointDataProvider):
     def get_batch(self, batch_num):
         dic = CroppedDHMLPEJointDataProvider.get_batch(self, batch_num)
@@ -220,6 +225,7 @@ class CroppedDHMLPERelSkelJointDataProvider(CroppedDHMLPEJointDataProvider):
         CroppedDHMLPEJointDataProvider.__init__(self, data_dir, image_range, init_epoch, init_batchnum, dp_params, test)
         self.feature_name_3d = 'RelativeSkel_Y3d_mono_body'
 
+
 class CroppedDHMLPERelSkelJointPlusDataProvider(CroppedDHMLPEJointDataProvider):
     def __init__(self, data_dir, image_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):
         """
@@ -241,6 +247,7 @@ class CroppedDHMLPERelSkelJointPlusDataProvider(CroppedDHMLPEJointDataProvider):
         else:
             return self.num_joints*2
         
+
 class CroppedDHMLPEPairwiseRelJointDataProvider(CroppedDHMLPEJointDataProvider):
     def __init__(self, data_dir, image_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):
         """
@@ -347,6 +354,7 @@ class RelSkelJointDataProvider(JointDataProvider):
     def __init__(self, data_dir, image_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):
         JointDataProvider.__init__(self, data_dir, image_range, init_epoch, init_batchnum, dp_params, test)
         self.feature_name_3d = 'Relative_Y3d_mono_body'
+
 
 class RelSkelJointDoubleDataProvider(RelSkelJointDataProvider):
     def __init__(self, data_dir, image_range, init_epoch=1, init_batchnum=None, dp_params={}, test=False):

@@ -12,7 +12,9 @@ from options import *
 import pylab as pl
 import matplotlib.pyplot as plt
 import iutils as iu
+
 import dhmlpe_utils as dutils
+
 sys.path.append('/home/grads/sijinli2/Projects/DHMLPE/Python/src/')
 sys.path.append('/media/M_FILE/cscluster/Projects/DHMLPE/Python/src/')
 class TestConvNetError(Exception):
@@ -29,6 +31,7 @@ class TestConvNet(ConvNet):
         self.need_gpu |= self.op.get_value('analyze_feature_name') is not None
         self.need_gpu |= self.op.get_value('test_only') is not None
         self.need_gpu |= self.op.get_value('do_evaluation') is not None
+
         if self.op.get_value('mode'):
             mode_value = self.op.get_value('mode')
             flag = mode_value in ['do_score_prediction', 'slp_server']
@@ -119,6 +122,7 @@ class TestConvNet(ConvNet):
         pl.plot(x, train_errors, 'k-', label='Training set')
         pl.plot(x, test_errors, 'r-', label='Test set')
         print test_errors[-10:]
+
         log_scale = False
         if log_scale:
             pass
@@ -126,6 +130,7 @@ class TestConvNet(ConvNet):
             pl.ylim([0, np.median(test_errors[-len(test_errors)/10:-1])*2])
             # print np.median(test_errors[-len(test_errors)/10:-1])*2, ',,,,,,,,'
         
+
         pl.legend()
         if self.batch_size == -1:
             ticklocs = range(numbatches, len(train_errors) - len(train_errors) % numbatches + 1, numbatches)
@@ -250,7 +255,9 @@ class TestConvNet(ConvNet):
             print 'The len of data is ' + str(len(data))
             print 'The shape of X is' + str(d['X'].shape)
             print 'The shape of Y is' + str(d['Y'].shape)
+
             ##sio.savemat(save_path, d)
+
             pickle(save_path, d)
     @classmethod
     def parse_params(cls, s):
@@ -1241,6 +1248,7 @@ class TestConvNet(ConvNet):
                 saved['images_path'] = [self.test_data_provider.images_path[x] for x in tosave_indexes]
             saved['oribbox'] = self.test_data_provider.batch_meta['oribbox'][...,tosave_indexes].reshape((4,-1),order='F')
             sio.savemat(self.save_evaluation, saved)
+
     def do_score_prediction(self):
         """
         IN the current version, I will not take parameters from outside
@@ -1402,6 +1410,7 @@ class TestConvNet(ConvNet):
                 params['image_feature_layer_name'] = l_p[1]
         slpserver = slp.SLPServerTrial(self, params)
         slpserver.start()
+
     def get_backtrack_layer_list(self, layer_idx):
         """
         This function can be used for generating the back trackted layer list
@@ -1497,6 +1506,7 @@ class TestConvNet(ConvNet):
         op.options['load_file'].default = None
         return op
     
+
 
 if __name__ == "__main__":
     try:

@@ -489,6 +489,7 @@ class LogisticCostLayer: public CostLayer {
 };
 
 
+<<<<<<< HEAD
 class ConstCostLayer: public CostLayer {
  protected:
   void fpropActs(int inpIdx, float scaleTargets, PASS_TYPE passType);
@@ -500,6 +501,8 @@ class ConstCostLayer: public CostLayer {
 
 
 
+=======
+>>>>>>> origin/develop
 
 #endif	/* LAYER_CUH */
 
