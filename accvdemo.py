@@ -3,7 +3,9 @@ Usage
 python accvdemo.py -f MODELPATH --mode=accveval --images-folder=IMAGEFOLDER --mean-image-path=MEAN_IMAGE_PATH
 
 Exmaple
-python accvdemo.py -f /opt/visal/tmp/for_sijin/Data/saved/backup/ACCV2014/c8k16/ConvNet__2014-05-19_15.32.55 --mode=accveval --images-folder=./testimages --mean-image-path=~/saved_models/ACCVModels/action14_meta.mat 
+python accvdemo.py -f ~/saved_models/Action14 --mode=accveval --images-folder=./testimages --mean-image-path=~/saved_models/ACCVModels/action14_meta.mat 
+
+Note: --layer-def and --layer-params might need to be specified 
 
 """
 import numpy as np
@@ -68,6 +70,8 @@ class TestConvNet(ConvNet):
     def load_images(self, images_path):
         def load_as_arr(p):
             img = Image.open(p)
+            # For simplicity, I just resize the images
+            # Please do the pre-processing, say do the cropping, according to your own setting
             return np.array(img.resize((112,112))).reshape((-1,1),order='F')
         return np.concatenate([load_as_arr(p) for p in images_path], axis=1)
     def do_accveval(self):
