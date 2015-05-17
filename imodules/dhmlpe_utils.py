@@ -27,7 +27,6 @@ def show_3d_skeleton(joints, limbs, params = None):
     else:
         limb_order = range(n_lim)
 
-
     c = params['color'] if 'color' in params else imgproc.get_color_list(n_lim)
     lw = params['linewidth'] if 'linewidth' in params else 8
     for k in limb_order:
