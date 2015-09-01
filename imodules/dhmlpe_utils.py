@@ -35,6 +35,10 @@ def show_3d_skeleton(joints, limbs, params = None):
         j2 = joints[l[1]]
         x,y,z = [j1[0], j2[0]], [j1[1], j2[1]], [j1[2], j2[2]]
         ax.plot(x, y, z, c = c[k],linewidth=lw)
+        
+        # show doesn't work
+        # use save
+        plt.savefig('re.png')
 def show_2d_skeleton(joints, limbs, params = None):
     """
     joints is n x 2 matrix

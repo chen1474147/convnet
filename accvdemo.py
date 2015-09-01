@@ -138,6 +138,19 @@ class TestConvNet(ConvNet):
     
 
 if __name__ == "__main__":
+
+    nums = [3, 4, 5, 12, 14, 15]
+
+    num = 14
+
+    sys.argv = [None] * 6
+    sys.argv[0] = 'accvdemo.py'
+    sys.argv[1] = '-f'
+    sys.argv[2] = '../accvmodel/Action%d' % num
+    sys.argv[3] = '--mode=accveval'
+    sys.argv[4] = '--images-folder=./testimages'
+    sys.argv[5] = '--mean-image-path=../accvmodel/action%d_mean.mat' % num
+
     try:
         op = TestConvNet.get_options_parser()
         op, load_dic = IGPUModel.parse_options(op)
